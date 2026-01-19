@@ -1,0 +1,39 @@
+{
+	"folders": [
+		{
+			"name": "ceramic-workshop-app",
+			"path": "../.."
+		},
+		{
+			"name": "ceramic-workshop-backend",
+			"path": "../../../ceramic-workshop-backend"
+		},
+		{
+			"name": "ceramic-electric-furnace-backend",
+			"path": "../../../ceramic-electric-furnace-backend"
+		},
+		{
+			"name": "ceramic-electric_furnace-flutter",
+			"path": "../../../ceramic-electric_furnace-flutter"
+		},
+		{
+			"name": "ceramic-waterpump-backend",
+			"path": "../../../ceramic-waterpump-backend"
+		},
+		{
+			"name": "ceramic-waterpump-flutter",
+			"path": "../../../ceramic-waterpump-flutter"
+		},
+		{
+			"name": "ceramic-hopper-app",
+			"path": "../../../ceramic-hopper-app"
+		},
+		{
+			"name": "ceramic-hopper-backend",
+			"path": "../../../ceramic-hopper-backend"
+		}
+	],
+	"settings": {
+		"java.compile.nullAnalysis.mode": "automatic"
+	}
+}
