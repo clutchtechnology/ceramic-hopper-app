@@ -1,7 +1,8 @@
 // 后端API地址统一管理
 
 class Api {
-  static const String baseUrl = 'http://localhost:8080';
+  // Mock后端端口: 8083 (生产环境: 8082)
+  static const String baseUrl = 'http://localhost:8083';
 
   // 健康检查
   static const String health = '/api/health';

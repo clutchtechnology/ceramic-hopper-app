@@ -26,7 +26,7 @@ class ServerConfigData {
   factory ServerConfigData.fromJson(Map<String, dynamic> json) {
     return ServerConfigData(
       host: json['host'] as String? ?? '0.0.0.0',
-      port: json['port'] as int? ?? 8080,
+      port: json['port'] as int? ?? 8083,
       debug: json['debug'] as bool? ?? false,
     );
   }
@@ -310,7 +310,7 @@ class BackendConfigProvider extends ChangeNotifier {
   void resetToDefault() {
     _serverConfig = ServerConfigData(
       host: '0.0.0.0',
-      port: 8080,
+      port: 8083,
       debug: false,
     );
     _plcConfig = PlcConfigData(

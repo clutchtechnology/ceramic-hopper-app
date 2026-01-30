@@ -22,19 +22,23 @@ class HopperData {
   final String deviceId;
   final String? timestamp;
   final WeighSensor? weighSensor;
+  final Pm10Sensor? pm10Sensor;
   final TemperatureSensor? temperatureSensor;
   final TemperatureSensor? temperatureSensor1; // 长料仓第1个温度
   final TemperatureSensor? temperatureSensor2; // 长料仓第2个温度
   final ElectricityMeter? electricityMeter;
+  final VibrationData? vibration;
 
   HopperData({
     required this.deviceId,
     this.timestamp,
     this.weighSensor,
+    this.pm10Sensor,
     this.temperatureSensor,
     this.temperatureSensor1,
     this.temperatureSensor2,
     this.electricityMeter,
+    this.vibration,
   });
 
   factory HopperData.fromJson(Map<String, dynamic> json) {
@@ -47,6 +51,11 @@ class HopperData {
           ? WeighSensor.fromJson(modules['weight']['fields'] ?? {})
           : (modules.containsKey('WeighSensor')
               ? WeighSensor.fromJson(modules['WeighSensor'])
+              : null),
+      pm10Sensor: modules.containsKey('pm10')
+          ? Pm10Sensor.fromJson(modules['pm10']['fields'] ?? {})
+          : (modules.containsKey('PM10Sensor')
+              ? Pm10Sensor.fromJson(modules['PM10Sensor'])
               : null),
       temperatureSensor: modules.containsKey('temp')
           ? TemperatureSensor.fromJson(modules['temp']['fields'] ?? {})
@@ -69,7 +78,22 @@ class HopperData {
               : (modules.containsKey('ElectricityMeter')
                   ? ElectricityMeter.fromJson(modules['ElectricityMeter'])
                   : null)),
+      vibration: _parseVibration(modules),
     );
+  }
+
+  static VibrationData? _parseVibration(Map<String, dynamic> modules) {
+    Map<String, dynamic>? raw;
+    if (modules.containsKey('vibration')) {
+      raw = modules['vibration']['fields'] ?? {};
+    } else if (modules.containsKey('vibration_selected')) {
+      raw = modules['vibration_selected']['fields'] ?? {};
+    } else if (modules.containsKey('VibrationSelected')) {
+      raw = modules['VibrationSelected'];
+    }
+
+    if (raw == null) return null;
+    return VibrationData.fromJson(raw);
   }
 
   /// 用于本地缓存的序列化 (简化格式)
@@ -78,6 +102,7 @@ class HopperData {
         'timestamp': timestamp,
         'modules': {
           if (weighSensor != null) 'WeighSensor': weighSensor!.toJson(),
+          if (pm10Sensor != null) 'PM10Sensor': pm10Sensor!.toJson(),
           if (temperatureSensor != null)
             'TemperatureSensor': temperatureSensor!.toJson(),
           if (temperatureSensor1 != null)
@@ -86,7 +111,106 @@ class HopperData {
             'temp2': {'fields': temperatureSensor2!.toJson()},
           if (electricityMeter != null)
             'ElectricityMeter': electricityMeter!.toJson(),
+          if (vibration != null) 'vibration': {'fields': vibration!.toJson()},
         },
+      };
+}
+
+class VibrationData {
+  final double dx;
+  final double dy;
+  final double dz;
+  final double freqX;
+  final double freqY;
+  final double freqZ;
+  final double kx;
+  final double ky;
+  final double kz;
+  final double vrmsX;
+  final double vrmsY;
+  final double vrmsZ;
+
+  VibrationData({
+    required this.dx,
+    required this.dy,
+    required this.dz,
+    required this.freqX,
+    required this.freqY,
+    required this.freqZ,
+    required this.kx,
+    required this.ky,
+    required this.kz,
+    required this.vrmsX,
+    required this.vrmsY,
+    required this.vrmsZ,
+  });
+
+  factory VibrationData.fromJson(Map<String, dynamic> json) {
+    double readNum(List<String> keys) {
+      for (final key in keys) {
+        final value = json[key];
+        if (value is num) return value.toDouble();
+      }
+      return 0.0;
+    }
+
+    return VibrationData(
+      dx: readNum(['dx', 'DX', 'dxValue']),
+      dy: readNum(['dy', 'DY', 'dyValue']),
+      dz: readNum(['dz', 'DZ', 'dzValue']),
+      freqX: readNum(['freq_x', 'HZX', 'hzx', 'FreqX']),
+      freqY: readNum(['freq_y', 'HZY', 'hzy', 'FreqY']),
+      freqZ: readNum(['freq_z', 'HZZ', 'hzz', 'FreqZ']),
+      kx: readNum(['k_x', 'kx', 'KX', 'acc_peak_x']),
+      ky: readNum(['k_y', 'ky', 'KY', 'acc_peak_y']),
+      kz: readNum(['k_z', 'kz', 'KZ', 'acc_peak_z']),
+      vrmsX: readNum(['vrms_x', 'VRMSX', 'vrmsX']),
+      vrmsY: readNum(['vrms_y', 'VRMSY', 'vrmsY']),
+      vrmsZ: readNum(['vrms_z', 'VRMSZ', 'VRMGZ', 'vrmsZ']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'dx': dx,
+        'dy': dy,
+        'dz': dz,
+        'freq_x': freqX,
+        'freq_y': freqY,
+        'freq_z': freqZ,
+        'kx': kx,
+        'ky': ky,
+        'kz': kz,
+        'vrms_x': vrmsX,
+        'vrms_y': vrmsY,
+        'vrms_z': vrmsZ,
+      };
+}
+
+class Pm10Sensor {
+  final double pm10;
+  final double pm25;
+  final double pm1;
+
+  Pm10Sensor({
+    required this.pm10,
+    required this.pm25,
+    required this.pm1,
+  });
+
+  factory Pm10Sensor.fromJson(Map<String, dynamic> json) {
+    return Pm10Sensor(
+      pm10: (json['pm10'] as num?)?.toDouble() ??
+          (json['concentration'] as num?)?.toDouble() ??
+          0.0,
+      pm25: (json['pm2_5'] as num?)?.toDouble() ?? 0.0,
+      pm1: (json['pm1_0'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'pm10': pm10,
+        'pm2_5': pm25,
+        'pm1_0': pm1,
       };
 }
 

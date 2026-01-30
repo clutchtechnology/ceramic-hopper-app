@@ -8,7 +8,7 @@ class ServerConfig {
 
   ServerConfig({
     this.ipAddress = '192.168.1.100',
-    this.port = 8080,
+    this.port = 8083,
   });
 
   Map<String, dynamic> toJson() => {
@@ -19,7 +19,7 @@ class ServerConfig {
   factory ServerConfig.fromJson(Map<String, dynamic> json) {
     return ServerConfig(
       ipAddress: json['ipAddress'] as String? ?? '192.168.1.100',
-      port: json['port'] as int? ?? 8080,
+      port: json['port'] as int? ?? 8083,
     );
   }
 }

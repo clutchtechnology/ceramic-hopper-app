@@ -17,9 +17,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  // ============================================================
   // 状态变量
-  // ============================================================
 
   // 1, 当前选中的配置区块索引 (0:服务, 1:PLC, 2:实时数据, 3:管理员)
   int _selectedSection = 0;
@@ -44,9 +42,7 @@ class _SettingsPageState extends State<SettingsPage> {
   // 8, 连接测试是否成功
   bool? _connectionTestSuccess;
 
-  // ============================================================
   // 生命周期
-  // ============================================================
 
   @override
   void initState() {
@@ -709,7 +705,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       );
     }
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -950,9 +946,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // ============================================================================
   // 操作方法
-  // ============================================================================
 
   Future<void> _savePlcConfig() async {
     final newConfig = PlcConfigData(
