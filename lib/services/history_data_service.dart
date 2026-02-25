@@ -53,9 +53,28 @@ class HistoryDataService {
 
   /// 有效的聚合间隔选项（秒）
   static const List<int> _validIntervals = [
-    5, 10, 15, 30, 60, 120, 180, 300, 600, 900, 
-    1800, 3600, 7200, 14400, 21600, 43200, 86400, 
-    172800, 259200, 604800, 1209600, 2592000
+    5,
+    10,
+    15,
+    30,
+    60,
+    120,
+    180,
+    300,
+    600,
+    900,
+    1800,
+    3600,
+    7200,
+    14400,
+    21600,
+    43200,
+    86400,
+    172800,
+    259200,
+    604800,
+    1209600,
+    2592000
   ];
 
   static String calculateAggregateInterval(DateTime start, DateTime end) {
@@ -174,6 +193,109 @@ class HistoryDataService {
     );
   }
 
+  /// 查询料仓PM10历史
+  Future<HistoryDataResult> queryHopperPM10History(
+      String deviceId, DateTime start, DateTime end) {
+    return queryHopperHistory(
+      deviceId: deviceId,
+      start: start,
+      end: end,
+      moduleType: 'PM10Sensor',
+      fields: ['pm10_value'],
+    );
+  }
+
+  /// 查询料仓功率历史 (Pt)
+  Future<HistoryDataResult> queryHopperPowerHistory(
+      String deviceId, DateTime start, DateTime end) {
+    return queryHopperHistory(
+      deviceId: deviceId,
+      start: start,
+      end: end,
+      moduleType: 'ElectricityMeter',
+      fields: ['Pt'],
+    );
+  }
+
+  // ============================================================
+  // 三相/三轴历史数据查询 (返回 Map 用于多线图表)
+  // ============================================================
+
+  /// 查询料仓三相电流历史 (I_0, I_1, I_2)
+  Future<Map<String, List<HistoryDataPoint>>>
+      queryHopperThreePhaseCurrentHistory(
+          String deviceId, DateTime start, DateTime end) async {
+    final result = await queryHopperHistory(
+      deviceId: deviceId,
+      start: start,
+      end: end,
+      moduleType: 'ElectricityMeter',
+      fields: ['I_0', 'I_1', 'I_2'],
+    );
+    final points = result.data ?? [];
+    return {'A': points, 'B': points, 'C': points};
+  }
+
+  /// 查询料仓三相电压历史 (Ua_0, Ua_1, Ua_2)
+  Future<Map<String, List<HistoryDataPoint>>>
+      queryHopperThreePhaseVoltageHistory(
+          String deviceId, DateTime start, DateTime end) async {
+    final result = await queryHopperHistory(
+      deviceId: deviceId,
+      start: start,
+      end: end,
+      moduleType: 'ElectricityMeter',
+      fields: ['Ua_0', 'Ua_1', 'Ua_2'],
+    );
+    final points = result.data ?? [];
+    return {'A': points, 'B': points, 'C': points};
+  }
+
+  /// 查询料仓三轴振动速度历史 (vx, vy, vz)
+  Future<Map<String, List<HistoryDataPoint>>>
+      queryHopperThreeAxisVelocityHistory(
+          String deviceId, DateTime start, DateTime end) async {
+    final result = await queryHopperHistory(
+      deviceId: deviceId,
+      start: start,
+      end: end,
+      moduleType: 'vibration',
+      fields: ['vx', 'vy', 'vz'],
+    );
+    final points = result.data ?? [];
+    return {'X': points, 'Y': points, 'Z': points};
+  }
+
+  /// 查询料仓三轴振动位移历史 (dx, dy, dz)
+  Future<Map<String, List<HistoryDataPoint>>>
+      queryHopperThreeAxisDisplacementHistory(
+          String deviceId, DateTime start, DateTime end) async {
+    final result = await queryHopperHistory(
+      deviceId: deviceId,
+      start: start,
+      end: end,
+      moduleType: 'vibration',
+      fields: ['dx', 'dy', 'dz'],
+    );
+    final points = result.data ?? [];
+    return {'X': points, 'Y': points, 'Z': points};
+  }
+
+  /// 查询料仓三轴振动频率历史 (hzx, hzy, hzz)
+  Future<Map<String, List<HistoryDataPoint>>>
+      queryHopperThreeAxisFrequencyHistory(
+          String deviceId, DateTime start, DateTime end) async {
+    final result = await queryHopperHistory(
+      deviceId: deviceId,
+      start: start,
+      end: end,
+      moduleType: 'vibration',
+      fields: ['hzx', 'hzy', 'hzz'],
+    );
+    final points = result.data ?? [];
+    return {'X': points, 'Y': points, 'Z': points};
+  }
+
   // ============================================================
   // 内部方法
   // ============================================================
@@ -187,7 +309,8 @@ class HistoryDataService {
         params[key] = value;
       });
 
-      final json = await client.get(uri.path, params: params.isNotEmpty ? params : null);
+      final json =
+          await client.get(uri.path, params: params.isNotEmpty ? params : null);
 
       if (json['success'] == true) {
         final data = json['data'];
@@ -201,7 +324,8 @@ class HistoryDataService {
             end: DateTime.parse(data['time_range']['end']).toLocal(),
           ),
           interval: data['interval'] ?? '5m',
-          dataPoints: dataList.map((e) => HistoryDataPoint.fromJson(e)).toList(),
+          dataPoints:
+              dataList.map((e) => HistoryDataPoint.fromJson(e)).toList(),
         );
       } else {
         return HistoryDataResult(
@@ -262,7 +386,9 @@ class HistoryDataPoint {
     final time = DateTime.parse(timeStr).toLocal();
     final fields = <String, dynamic>{};
     for (var entry in json.entries) {
-      if (entry.key != 'time' && entry.key != 'module_tag' && entry.key != 'module_type') {
+      if (entry.key != 'time' &&
+          entry.key != 'module_tag' &&
+          entry.key != 'module_type') {
         fields[entry.key] = entry.value;
       }
     }
@@ -276,12 +402,40 @@ class HistoryDataPoint {
     // Otherwise try common value fields
     return _getDouble('value') ?? 0;
   }
-  
+
   double get temperature => _getDouble('temperature') ?? 0;
   double get weight => _getDouble('weight') ?? 0;
   double get feedRate => _getDouble('feed_rate') ?? 0;
   double get pt => _getDouble('Pt') ?? 0;
   double get impEp => _getDouble('ImpEp') ?? 0;
+
+  // PM10
+  double get pm10Value => _getDouble('pm10_value') ?? 0;
+
+  // 三相电流 (A/B/C)
+  double get currentA => _getDouble('I_0') ?? 0;
+  double get currentB => _getDouble('I_1') ?? 0;
+  double get currentC => _getDouble('I_2') ?? 0;
+
+  // 三相电压 (A/B/C)
+  double get voltageA => _getDouble('Ua_0') ?? 0;
+  double get voltageB => _getDouble('Ua_1') ?? 0;
+  double get voltageC => _getDouble('Ua_2') ?? 0;
+
+  // 振动速度 (三轴)
+  double get vx => _getDouble('vx') ?? 0;
+  double get vy => _getDouble('vy') ?? 0;
+  double get vz => _getDouble('vz') ?? 0;
+
+  // 振动位移 (三轴)
+  double get dx => _getDouble('dx') ?? 0;
+  double get dy => _getDouble('dy') ?? 0;
+  double get dz => _getDouble('dz') ?? 0;
+
+  // 振动频率 (三轴)
+  double get freqX => _getDouble('hzx') ?? 0;
+  double get freqY => _getDouble('hzy') ?? 0;
+  double get freqZ => _getDouble('hzz') ?? 0;
 
   double? _getDouble(String key) {
     final value = fields[key];

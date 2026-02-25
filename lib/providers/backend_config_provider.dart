@@ -50,6 +50,27 @@ class ServerConfigData {
   }
 }
 
+/// 数据库配置数据模型 (只读)
+class DatabaseConfigData {
+  final String influxUrl;
+  final String influxOrg;
+  final String influxBucket;
+
+  DatabaseConfigData({
+    required this.influxUrl,
+    required this.influxOrg,
+    required this.influxBucket,
+  });
+
+  factory DatabaseConfigData.fromJson(Map<String, dynamic> json) {
+    return DatabaseConfigData(
+      influxUrl: json['influx_url'] as String? ?? '',
+      influxOrg: json['influx_org'] as String? ?? '',
+      influxBucket: json['influx_bucket'] as String? ?? '',
+    );
+  }
+}
+
 /// PLC配置数据模型
 class PlcConfigData {
   String ipAddress;
@@ -68,7 +89,7 @@ class PlcConfigData {
 
   factory PlcConfigData.fromJson(Map<String, dynamic> json) {
     return PlcConfigData(
-      ipAddress: json['ip_address'] as String? ?? '192.168.50.223',
+      ipAddress: json['ip_address'] as String? ?? '192.168.50.235',
       rack: json['rack'] as int? ?? 0,
       slot: json['slot'] as int? ?? 1,
       timeoutMs: json['timeout_ms'] as int? ?? 5000,
@@ -128,6 +149,8 @@ class BackendConfigProvider extends ChangeNotifier {
   ServerConfigData? _serverConfig;
   // 5, PLC配置数据 (ip_address/rack/slot/timeout_ms/poll_interval)
   PlcConfigData? _plcConfig;
+  // 数据库配置数据 (只读)
+  DatabaseConfigData? _databaseConfig;
   // 6, API请求进行中标志
   bool _isLoading = false;
   // 7, 最近一次操作的错误信息
@@ -135,6 +158,7 @@ class BackendConfigProvider extends ChangeNotifier {
 
   ServerConfigData? get serverConfig => _serverConfig;
   PlcConfigData? get plcConfig => _plcConfig;
+  DatabaseConfigData? get databaseConfig => _databaseConfig;
   bool get isLoading => _isLoading;
   String? get error => _error;
 
@@ -229,6 +253,16 @@ class BackendConfigProvider extends ChangeNotifier {
         _plcConfig = PlcConfigData.fromJson(plcData['data']);
       }
 
+      // 获取数据库配置 (GET /api/config/database)
+      try {
+        final dbData = await client.get(Api.configDatabase);
+        if (dbData['success'] == true && dbData['data'] != null) {
+          _databaseConfig = DatabaseConfigData.fromJson(dbData['data']);
+        }
+      } catch (_) {
+        // 数据库配置获取失败不影响整体
+      }
+
       // 1,2, 保存到本地缓存 (使用 _serverConfigKey 和 _plcConfigKey)
       await _saveToLocal();
 
@@ -314,7 +348,7 @@ class BackendConfigProvider extends ChangeNotifier {
       debug: false,
     );
     _plcConfig = PlcConfigData(
-      ipAddress: '192.168.50.223',
+      ipAddress: '192.168.50.235',
       rack: 0,
       slot: 1,
       timeoutMs: 5000,

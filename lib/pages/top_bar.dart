@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -6,11 +7,13 @@ import '../widgets/data_display/data_tech_line_widgets.dart';
 import '../widgets/top_bar/dt_health_status.dart';
 import '../providers/admin_provider.dart';
 import 'realtime_dashboard_page.dart';
-import 'data_history_page.dart';
+import 'hopper_history_page.dart';
 import 'settings_page.dart';
-import 'sensor_status_page.dart';
 
-/// 顶部导航栏目
+/// 主页面 - 带Tab导航
+/// Tab1: 实时数据
+/// Tab2: 历史曲线
+/// Tab3: 系统设置
 class DigitalTwinPage extends StatefulWidget {
   const DigitalTwinPage({super.key});
 
@@ -18,165 +21,86 @@ class DigitalTwinPage extends StatefulWidget {
   State<DigitalTwinPage> createState() => _DigitalTwinPageState();
 }
 
-class _DigitalTwinPageState extends State<DigitalTwinPage> with WindowListener {
-  // ============================================================
-  // 状态变量
-  // ============================================================
+class _DigitalTwinPageState extends State<DigitalTwinPage>
+    with SingleTickerProviderStateMixin {
+  // 1, Tab 控制器
+  late TabController _tabController;
 
-  // 1, 当前选中的导航索引 (0=实时大屏, 1=历史数据, 2=状态监控, 3=系统配置)
-  int _selectedNavIndex = 0;
+  // 2, HopperHistoryPage 的 GlobalKey，用于调用刷新方法
+  final GlobalKey<HopperHistoryPageState> _hopperHistoryPageKey = GlobalKey();
 
-  // 2, 时钟定时器（替代 Stream.periodic 防止内存泄漏）
+  // 3, 实时数据页面 Key
+  final GlobalKey<RealtimeDashboardPageState> _realtimePageKey = GlobalKey();
+
+  // 4, 跟踪当前 Tab 索引
+  int _currentTabIndex = 0;
+
+  // 5, 时钟定时器
   Timer? _clockTimer;
-  String _timeString = '';
+  String _clockTime = '';
 
-  // 8, 窗口状态（是否全屏/最大化）
-  bool _restoreFullScreenAfterMinimize = false;
-
-  // ============================================================
-  // 页面 GlobalKey (用于调用子页面方法)
-  // ============================================================
-
-  // 3, 历史数据页面 Key
-  final GlobalKey<HistoryDataPageState> _historyDataPageKey =
-      GlobalKey<HistoryDataPageState>();
-
-  // 4, 实时大屏页面 Key
-  final GlobalKey<RealtimeDashboardPageState> _realtimeDashboardPageKey =
-      GlobalKey<RealtimeDashboardPageState>();
-
-  // 5, 状态监控页面 Key
-  final GlobalKey<SensorStatusPageState> _sensorStatusPageKey =
-      GlobalKey<SensorStatusPageState>();
-
-  // ============================================================
-  // 页面实例缓存 (保持页面状态)
-  // 注意: SettingsPage 不缓存，每次进入都重新构建，避免 Provider 依赖问题
-  // ============================================================
-  late final Widget _realtimeDashboardPage;
-  late final Widget _historyDataPage;
-  late final Widget _sensorStatusPage;
+  // 6, 窗口最大化状态
+  bool _isMaximized = true; // 默认启动时是最大化的
 
   @override
   void initState() {
     super.initState();
-    windowManager.addListener(this);
-    // 初始化页面实例 (SettingsPage 不缓存，动态构建)
-    _realtimeDashboardPage =
-        RealtimeDashboardPage(key: _realtimeDashboardPageKey);
-    _historyDataPage = HistoryDataPage(key: _historyDataPageKey);
-    _sensorStatusPage = SensorStatusPage(key: _sensorStatusPageKey);
+    // 1, 初始化 Tab 控制器（3个Tab：实时数据、历史曲线、系统设置）
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(_onTabChanged);
 
-    // 2, 启动时钟定时器
-    _updateTime();
+    // 5, 启动时钟定时器
+    _startClockTimer();
+  }
+
+  /// Tab 切换回调
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging) return;
+
+    final newIndex = _tabController.index;
+    _currentTabIndex = newIndex;
+
+    // 进入历史曲线页面时刷新
+    if (newIndex == 1) {
+      _hopperHistoryPageKey.currentState?.refreshData();
+    }
+  }
+
+  /// 5, 启动时钟定时器 (替代 StreamBuilder 避免无法取消的 Stream)
+  void _startClockTimer() {
+    _updateClockTime();
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) _updateTime();
-    });
-
-    // 🔧 [CRITICAL] 确保非活跃页面的 Timer 不运行
-    // 延迟执行，等待页面完成构建后再控制 Timer
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // 默认显示实时大屏 (index=0)，确保其他页面的 Timer 已暂停
-      _pausePagePolling(2); // 暂停状态监控页
-      // 只有当前页面 (index=0) 的 Timer 应该运行
+      if (!mounted) return;
+      _updateClockTime();
     });
   }
 
-  /// 2, 更新时钟显示
-  void _updateTime() {
+  /// 5, 更新时钟显示
+  void _updateClockTime() {
+    if (!mounted) return;
     final now = DateTime.now();
-    final newTimeString =
+    final timeStr =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
-    if (_timeString != newTimeString) {
-      setState(() => _timeString = newTimeString);
+    if (_clockTime != timeStr) {
+      setState(() {
+        _clockTime = timeStr;
+      });
     }
   }
 
   @override
   void dispose() {
-    // 2, [CRITICAL] 取消时钟定时器，防止内存泄漏
+    // 1, 移除 Tab 监听器
+    _tabController.removeListener(_onTabChanged);
+
+    // 1, 释放 Tab 控制器
+    _tabController.dispose();
+
+    // 5, 取消时钟定时器
     _clockTimer?.cancel();
     _clockTimer = null;
-    windowManager.removeListener(this);
+
     super.dispose();
-  }
-
-  @override
-  void onWindowEnterFullScreen() {
-    if (!mounted) return;
-    // _isFullScreen 未被使用，移除赋值以消除警告
-    // setState(() => _isFullScreen = true);
-  }
-
-  @override
-  void onWindowLeaveFullScreen() {
-    if (!mounted) return;
-    // _isFullScreen 未被使用，移除赋值以消除警告
-    // setState(() => _isFullScreen = false);
-  }
-
-  @override
-  void onWindowRestore() {
-    _tryRestoreFullScreenAfterMinimize();
-  }
-
-  @override
-  void onWindowFocus() {
-    _tryRestoreFullScreenAfterMinimize();
-  }
-
-  Future<void> _tryRestoreFullScreenAfterMinimize() async {
-    if (!_restoreFullScreenAfterMinimize || !mounted) return;
-    _restoreFullScreenAfterMinimize = false;
-    try {
-      await windowManager.setFullScreen(true);
-    } catch (_) {
-      // ignore
-    }
-  }
-
-  /// 导航项点击处理
-  /// 1, 切换页面并管理各页面的定时器状态
-  void _onNavItemTap(int index) {
-    final previousIndex = _selectedNavIndex;
-    if (previousIndex == index) return; // 点击当前页面，无需操作
-
-    setState(() => _selectedNavIndex = index);
-
-    // 🔧 暂停离开页面的定时器
-    _pausePagePolling(previousIndex);
-
-    // 🔧 恢复/初始化进入页面的定时器
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _resumePagePolling(index);
-    });
-  }
-
-  /// 暂停指定页面的轮询
-  void _pausePagePolling(int pageIndex) {
-    switch (pageIndex) {
-      case 0: // 4, 实时大屏
-        _realtimeDashboardPageKey.currentState?.pausePolling();
-        break;
-      case 2: // 5, 状态监控
-        _sensorStatusPageKey.currentState?.pausePolling();
-        break;
-    }
-  }
-
-  /// 恢复指定页面的轮询
-  void _resumePagePolling(int pageIndex) {
-    switch (pageIndex) {
-      case 0: // 4, 实时大屏
-        _realtimeDashboardPageKey.currentState?.resumePolling();
-        break;
-      case 1: // 3, 历史数据
-        _historyDataPageKey.currentState?.onPageEnter();
-        break;
-      case 2: // 5, 状态监控
-        _sensorStatusPageKey.currentState?.resumePolling();
-        break;
-    }
   }
 
   @override
@@ -189,532 +113,527 @@ class _DigitalTwinPageState extends State<DigitalTwinPage> with WindowListener {
         child: Column(
           children: [
             // 顶部导航栏
-            _buildTopNavBar(),
-            // 主内容区 - 根据选择的Tab显示不同页面
+            _buildTopBar(),
+            // 主内容区
             Expanded(
-              child: _buildSelectedView(),
+              child: TabBarView(
+                controller: _tabController,
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  // Tab1: 实时数据
+                  RealtimeDashboardPage(key: _realtimePageKey),
+                  // Tab2: 历史曲线
+                  HopperHistoryPage(key: _hopperHistoryPageKey),
+                  // Tab3: 系统设置
+                  const SettingsPage(),
+                ],
+              ),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  /// 根据选中的导航项构建对应视图
-  /// 使用 Offstage + TickerMode 替代 IndexedStack
-  /// 避免 Consumer 在隐藏页面中的依赖问题
-  Widget _buildSelectedView() {
-    return Stack(
-      children: [
-        // 实时大屏
-        Offstage(
-          offstage: _selectedNavIndex != 0,
-          child: TickerMode(
-            enabled: _selectedNavIndex == 0,
-            child: _realtimeDashboardPage,
-          ),
-        ),
-        // 历史数据
-        Offstage(
-          offstage: _selectedNavIndex != 1,
-          child: TickerMode(
-            enabled: _selectedNavIndex == 1,
-            child: _historyDataPage,
-          ),
-        ),
-        // 状态监控
-        Offstage(
-          offstage: _selectedNavIndex != 2,
-          child: TickerMode(
-            enabled: _selectedNavIndex == 2,
-            child: _sensorStatusPage,
-          ),
-        ),
-        // 🔧 系统配置 - 每次都重新构建，不缓存
-        // 使用 Builder 确保在正确的 context 中构建
-        if (_selectedNavIndex == 3)
-          Builder(builder: (context) => const SettingsPage()),
-      ],
     );
   }
 
   /// 顶部导航栏
-  Widget _buildTopNavBar() {
-    final navItems = ['实时大屏', '历史数据', '状态监控'];
-
-    return Container(
-      height: 50,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      decoration: BoxDecoration(
-        color: TechColors.bgDark.withOpacity(0.9),
-        border: Border(
-          bottom: BorderSide(
-            color: TechColors.glowCyan.withOpacity(0.3),
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          // Logo/标题
-          Row(
-            children: [
-              Container(
-                width: 4,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: TechColors.glowCyan,
-                  borderRadius: BorderRadius.circular(2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: TechColors.glowCyan.withOpacity(0.5),
-                      blurRadius: 8,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              ShaderMask(
-                shaderCallback: (bounds) => const LinearGradient(
-                  colors: [TechColors.glowCyan, TechColors.glowCyanLight],
-                ).createShader(bounds),
-                child: const Text(
-                  '英格瓷南料仓车间',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 2,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 40),
-          // 导航项
-          ...List.generate(navItems.length, (index) {
-            final isSelected = _selectedNavIndex == index;
-            return Container(
-              margin: const EdgeInsets.only(right: 8),
-              child: GestureDetector(
-                onTap: () => _onNavItemTap(index),
-                behavior: HitTestBehavior.opaque, // 确保透明区域也能响应点击
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? TechColors.glowCyan.withOpacity(0.15)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: isSelected
-                          ? TechColors.glowCyan.withOpacity(0.5)
-                          : Colors.transparent,
-                    ),
-                  ),
-                  child: Text(
-                    navItems[index],
-                    style: TextStyle(
-                      color: isSelected
-                          ? TechColors.glowCyan
-                          : TechColors.textSecondary,
-                      fontSize: 13,
-                      fontWeight:
-                          isSelected ? FontWeight.w500 : FontWeight.w400,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }),
-          const Spacer(),
-          // 时间显示
-          _buildClockDisplay(),
-          const SizedBox(width: 20),
-          // 设置按钮
-          GestureDetector(
-            onTap: () => _showPasswordDialog(),
-            behavior: HitTestBehavior.opaque, // 增大点击判定区域
-            child: Container(
-              padding: const EdgeInsets.all(12), // 增大内边距
-              decoration: BoxDecoration(
-                color: _selectedNavIndex == 3
-                    ? TechColors.glowCyan.withOpacity(0.15)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Icon(
-                Icons.settings,
-                color: _selectedNavIndex == 3
-                    ? TechColors.glowCyan
-                    : TechColors.textSecondary,
-                size: 20,
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          // 8, 窗口控制按钮（最小化/还原/关闭）
-          _buildWindowControls(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildClockDisplay() {
-    return Row(
-      children: [
-        // 刷新数据按钮（仅在实时大屏页面显示）
-        if (_selectedNavIndex == 0) ...[
-          _buildRefreshButton(),
-          const SizedBox(width: 12),
-        ],
-        const HealthStatusWidget(),
-        const SizedBox(width: 12),
-        // 🔧 使用 Timer + setState 替代 StreamBuilder，防止内存泄漏
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: TechColors.bgMedium,
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(
-              color: TechColors.glowCyan.withOpacity(0.3),
-            ),
-          ),
-          child: Text(
-            _timeString,
-            style: TextStyle(
-              color: TechColors.glowCyan,
-              fontSize: 14,
-              fontFamily: 'Roboto Mono',
-              fontWeight: FontWeight.w500,
-              shadows: [
-                Shadow(
-                  color: TechColors.glowCyan.withOpacity(0.5),
-                  blurRadius: 8,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ============================================================
-  // 8, 窗口控制按钮
-  // ============================================================
-
-  /// 构建窗口控制按钮（最小化、关闭）
-  Widget _buildWindowControls() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // 最小化按钮
-        _buildWindowButton(
-          icon: Icons.remove,
-          tooltip: '最小化',
-          onTap: () async {
-            // Windows 下全屏窗口可能无法直接最小化：先退出全屏再最小化
-            final isFullScreen = await windowManager.isFullScreen();
-            if (isFullScreen) {
-              _restoreFullScreenAfterMinimize = true;
-              await windowManager.setFullScreen(false);
-            }
-            await windowManager.minimize();
-          },
-        ),
-        const SizedBox(width: 4),
-        // 关闭按钮
-        _buildWindowButton(
-          icon: Icons.close,
-          tooltip: '关闭',
-          isClose: true,
-          onTap: () async {
-            await windowManager.close();
-          },
-        ),
-      ],
-    );
-  }
-
-  /// 构建单个窗口控制按钮（移除 Tooltip 避免 IndexedStack 布局问题）
-  Widget _buildWindowButton({
-    required IconData icon,
-    required String tooltip, // 保留参数但不使用 Tooltip
-    required VoidCallback onTap,
-    bool isClose = false,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      hoverColor: isClose
-          ? Colors.red.withOpacity(0.8)
-          : TechColors.glowCyan.withOpacity(0.2),
+  Widget _buildTopBar() {
+    return GestureDetector(
+      // 添加窗口拖动功能
+      onPanStart: (_) => windowManager.startDragging(),
       child: Container(
-        width: 32,
-        height: 32,
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Icon(
-          icon,
-          size: 18,
-          color: isClose ? Colors.red.shade300 : TechColors.textSecondary,
-        ),
-      ),
-    );
-  }
-
-  /// 构建刷新按钮
-  Widget _buildRefreshButton() {
-    final isRefreshing =
-        _realtimeDashboardPageKey.currentState?.isRefreshing ?? false;
-
-    return InkWell(
-      onTap: isRefreshing
-          ? null
-          : () {
-              _realtimeDashboardPageKey.currentState?.refreshData();
-              // 触发UI更新
-              setState(() {});
-            },
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: isRefreshing
-              ? TechColors.bgMedium
-              : TechColors.glowOrange.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-            color: isRefreshing
-                ? TechColors.borderDark
-                : TechColors.glowOrange.withOpacity(0.6),
-            width: 1,
+          color: TechColors.bgDark.withOpacity(0.95),
+          border: Border(
+            bottom:
+                BorderSide(color: TechColors.glowCyan.withOpacity(0.3)),
           ),
         ),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            if (isRefreshing)
-              SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    TechColors.glowOrange,
+            // Logo
+            Container(
+              width: 4,
+              height: 20,
+              decoration: BoxDecoration(
+                color: TechColors.glowCyan,
+                borderRadius: BorderRadius.circular(2),
+                boxShadow: [
+                  BoxShadow(
+                    color: TechColors.glowCyan.withOpacity(0.5),
+                    blurRadius: 6,
                   ),
-                ),
-              )
-            else
-              Icon(
-                Icons.refresh,
-                size: 16,
-                color: TechColors.glowOrange,
-              ),
-            const SizedBox(width: 6),
-            Text(
-              isRefreshing ? '刷新中...' : '刷新数据',
-              style: TextStyle(
-                color: isRefreshing
-                    ? TechColors.textSecondary
-                    : TechColors.glowOrange,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                fontFamily: 'Roboto Mono',
+                ],
               ),
             ),
+            const SizedBox(width: 10),
+            // 标题
+            ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [TechColors.glowCyan, TechColors.glowCyanLight],
+              ).createShader(bounds),
+              child: const Text(
+                '南料仓',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 2,
+                ),
+              ),
+            ),
+            const SizedBox(width: 24),
+            // Tab切换按钮
+            _buildTabButtons(),
+            const Spacer(),
+            // 健康状态指示器
+            const HealthStatusWidget(),
+            const SizedBox(width: 12),
+            // 时钟
+            _buildClock(),
+            const SizedBox(width: 12),
+            // 设置按钮
+            _buildSettingsButton(),
+            const SizedBox(width: 12),
+            // 窗口控制按钮
+            if (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
+              _buildWindowButtons(),
           ],
         ),
       ),
     );
   }
 
-  /// 显示密码验证对话框
-  Future<void> _showPasswordDialog() async {
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => const _AdminPasswordDialog(),
+  /// Tab切换按钮
+  Widget _buildTabButtons() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildTabButton(0, '实时数据'),
+        const SizedBox(width: 4),
+        _buildTabButton(1, '历史曲线'),
+      ],
     );
-
-    // 🔧 [CRITICAL] showDialog 的 Future 会在 pop 时立刻完成，但弹窗退出动画仍在进行。
-    // 这里延迟一小段时间，避免在弹窗退场过程中触发页面重建引发 InheritedElement 销毁断言。
-    if (result == true && mounted) {
-      await Future.delayed(const Duration(milliseconds: 200));
-      if (mounted) {
-        setState(() => _selectedNavIndex = 3);
-      }
-    }
-  }
-}
-
-class _AdminPasswordDialog extends StatefulWidget {
-  const _AdminPasswordDialog();
-
-  @override
-  State<_AdminPasswordDialog> createState() => _AdminPasswordDialogState();
-}
-
-class _AdminPasswordDialogState extends State<_AdminPasswordDialog> {
-  final TextEditingController _passwordController = TextEditingController();
-  bool _showPassword = false;
-
-  @override
-  void dispose() {
-    _passwordController.dispose();
-    super.dispose();
   }
 
-  void _verify() {
-    final adminProvider = context.read<AdminProvider>();
-    final password = _passwordController.text;
+  Widget _buildTabButton(int index, String label) {
+    // 使用 _currentTabIndex 而不是 _tabController.index，避免未初始化错误
+    final isSelected = _currentTabIndex == index;
+    final color = isSelected ? TechColors.glowCyan : TechColors.textSecondary;
 
-    if (adminProvider.authenticate('admin', password)) {
-      Navigator.of(context).pop(true);
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('密码错误'),
-        backgroundColor: TechColors.statusAlarm,
-        duration: const Duration(seconds: 2),
+    return GestureDetector(
+      onTap: () {
+        if (mounted) {
+          setState(() {
+            _currentTabIndex = index;
+            _tabController.animateTo(index);
+          });
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? TechColors.glowCyan.withOpacity(0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: isSelected
+                ? TechColors.glowCyan.withOpacity(0.5)
+                : Colors.transparent,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 14,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
       ),
     );
-    _passwordController.clear();
   }
+
+  /// 设置按钮
+  Widget _buildSettingsButton() {
+    final isSelected = _currentTabIndex == 2;
+    return GestureDetector(
+      // 直接跳转到设置页面，不需要密码验证
+      onTap: () {
+        if (mounted) {
+          setState(() {
+            _currentTabIndex = 2;
+            _tabController.animateTo(2);
+          });
+        }
+      },
+      // 如果需要密码验证，取消上面的注释，使用下面的代码
+      // onTap: () => _showPasswordDialog(),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? TechColors.glowCyan.withOpacity(0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Icon(
+          Icons.settings,
+          color: isSelected
+              ? TechColors.glowCyan
+              : TechColors.textSecondary,
+          size: 18,
+        ),
+      ),
+    );
+  }
+
+  /// 时钟显示 (使用Timer而非StreamBuilder，避免无法取消的Stream)
+  Widget _buildClock() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: TechColors.bgMedium,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: TechColors.glowCyan.withOpacity(0.3)),
+      ),
+      child: Text(
+        _clockTime.isEmpty ? '--:--:--' : _clockTime,
+        style: const TextStyle(
+          color: TechColors.glowCyan,
+          fontSize: 13,
+          fontFamily: 'monospace',
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  /// 窗口控制按钮
+  Widget _buildWindowButtons() {
+    return Row(
+      children: [
+        _buildWindowButton(
+          icon: Icons.remove,
+          onTap: () => windowManager.minimize(),
+          hoverColor: TechColors.glowCyan,
+        ),
+        const SizedBox(width: 4),
+        _buildWindowButton(
+          icon: _isMaximized ? Icons.fullscreen_exit : Icons.crop_square,
+          onTap: () async {
+            if (await windowManager.isMaximized()) {
+              await windowManager.unmaximize();
+              setState(() => _isMaximized = false);
+            } else {
+              await windowManager.maximize();
+              setState(() => _isMaximized = true);
+            }
+          },
+          hoverColor: TechColors.glowCyan,
+        ),
+        const SizedBox(width: 4),
+        _buildWindowButton(
+          icon: Icons.close,
+          onTap: () => _showCloseDialog(),
+          hoverColor: TechColors.statusAlarm,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWindowButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    required Color hoverColor,
+  }) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 32,
+          height: 28,
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(4)),
+          child: _HoverBuilder(
+            hoverColor: hoverColor,
+            child: Icon(icon, size: 16, color: TechColors.textSecondary),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 关闭确认对话框
+  void _showCloseDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: TechColors.bgDark,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: const BorderSide(color: TechColors.borderDark),
+        ),
+        title:
+            const Text('确认退出', style: TextStyle(color: TechColors.textPrimary)),
+        content: const Text('确定要关闭应用程序吗？',
+            style: TextStyle(color: TechColors.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消',
+                style: TextStyle(color: TechColors.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () => windowManager.close(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: TechColors.statusAlarm.withOpacity(0.2),
+              foregroundColor: TechColors.statusAlarm,
+            ),
+            child: const Text('确认关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 显示密码验证对话框（已禁用，如需启用请取消注释）
+  // Future<void> _showPasswordDialog() async {
+  //   final result = await showDialog<bool>(
+  //     context: context,
+  //     barrierDismissible: false,
+  //     builder: (dialogContext) => const _AdminPasswordDialog(),
+  //   );
+  //
+  //   // 延迟一小段时间，避免在弹窗退场过程中触发页面重建
+  //   if (result == true && mounted) {
+  //     await Future.delayed(const Duration(milliseconds: 200));
+  //     if (mounted) {
+  //       setState(() {
+  //         _currentTabIndex = 3;
+  //         _tabController.animateTo(3);
+  //       });
+  //     }
+  //   }
+  // }
+}
+
+// ============================================================
+// 管理员密码验证对话框（已禁用，如需启用请取消注释）
+// ============================================================
+// class _AdminPasswordDialog extends StatefulWidget {
+//   const _AdminPasswordDialog();
+//
+//   @override
+//   State<_AdminPasswordDialog> createState() => _AdminPasswordDialogState();
+// }
+//
+// class _AdminPasswordDialogState extends State<_AdminPasswordDialog> {
+//   final TextEditingController _passwordController = TextEditingController();
+//   bool _showPassword = false;
+//
+//   @override
+//   void dispose() {
+//     _passwordController.dispose();
+//     super.dispose();
+//   }
+//
+//   void _verify() {
+//     final adminProvider = context.read<AdminProvider>();
+//     final password = _passwordController.text;
+//
+//     if (adminProvider.authenticate('admin', password)) {
+//       Navigator.of(context).pop(true);
+//       return;
+//     }
+//
+//     ScaffoldMessenger.of(context).showSnackBar(
+//       SnackBar(
+//         content: const Text('密码错误'),
+//         backgroundColor: TechColors.statusAlarm,
+//         duration: const Duration(seconds: 2),
+//       ),
+//     );
+//     _passwordController.clear();
+//   }
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     return Dialog(
+//       backgroundColor: TechColors.bgMedium,
+//       shape: RoundedRectangleBorder(
+//         borderRadius: BorderRadius.circular(4),
+//         side: BorderSide(
+//           color: TechColors.glowCyan.withOpacity(0.5),
+//         ),
+//       ),
+//       child: Container(
+//         width: 400,
+//         padding: const EdgeInsets.all(24),
+//         decoration: BoxDecoration(
+//           color: TechColors.bgMedium,
+//           borderRadius: BorderRadius.circular(4),
+//           border: Border.all(
+//             color: TechColors.glowCyan.withOpacity(0.5),
+//           ),
+//         ),
+//         child: Column(
+//           mainAxisSize: MainAxisSize.min,
+//           crossAxisAlignment: CrossAxisAlignment.start,
+//           children: [
+//             Row(
+//               children: [
+//                 Icon(
+//                   Icons.lock,
+//                   color: TechColors.glowCyan,
+//                   size: 24,
+//                 ),
+//                 const SizedBox(width: 12),
+//                 const Text(
+//                   '管理员验证',
+//                   style: TextStyle(
+//                     color: TechColors.textPrimary,
+//                     fontSize: 18,
+//                     fontWeight: FontWeight.w600,
+//                   ),
+//                 ),
+//               ],
+//             ),
+//             const SizedBox(height: 24),
+//             const Text(
+//               '请输入管理员密码:',
+//               style: TextStyle(
+//                 color: TechColors.textSecondary,
+//                 fontSize: 14,
+//               ),
+//             ),
+//             const SizedBox(height: 12),
+//             TextField(
+//               controller: _passwordController,
+//               obscureText: !_showPassword,
+//               autofocus: true,
+//               onSubmitted: (_) => _verify(),
+//               style: const TextStyle(
+//                 color: TechColors.textPrimary,
+//                 fontSize: 14,
+//               ),
+//               decoration: InputDecoration(
+//                 filled: true,
+//                 fillColor: TechColors.bgDeep,
+//                 border: OutlineInputBorder(
+//                   borderRadius: BorderRadius.circular(4),
+//                   borderSide: BorderSide(
+//                     color: TechColors.borderDark,
+//                   ),
+//                 ),
+//                 enabledBorder: OutlineInputBorder(
+//                   borderRadius: BorderRadius.circular(4),
+//                   borderSide: BorderSide(
+//                     color: TechColors.borderDark,
+//                   ),
+//                 ),
+//                 focusedBorder: OutlineInputBorder(
+//                   borderRadius: BorderRadius.circular(4),
+//                   borderSide: BorderSide(
+//                     color: TechColors.glowCyan,
+//                   ),
+//                 ),
+//                 suffixIcon: IconButton(
+//                   icon: Icon(
+//                     _showPassword ? Icons.visibility : Icons.visibility_off,
+//                     color: TechColors.textSecondary,
+//                   ),
+//                   onPressed: () {
+//                     setState(() {
+//                       _showPassword = !_showPassword;
+//                     });
+//                   },
+//                 ),
+//                 hintText: '输入密码',
+//                 hintStyle: TextStyle(
+//                   color: TechColors.textSecondary.withOpacity(0.5),
+//                 ),
+//               ),
+//             ),
+//             const SizedBox(height: 24),
+//             Row(
+//               mainAxisAlignment: MainAxisAlignment.end,
+//               children: [
+//                 OutlinedButton(
+//                   onPressed: () {
+//                     Navigator.of(context).pop(false);
+//                   },
+//                   style: OutlinedButton.styleFrom(
+//                     foregroundColor: TechColors.textSecondary,
+//                     side: BorderSide(
+//                       color: TechColors.borderDark,
+//                     ),
+//                   ),
+//                   child: const Text('取消'),
+//                 ),
+//                 const SizedBox(width: 12),
+//                 ElevatedButton(
+//                   onPressed: _verify,
+//                   style: ElevatedButton.styleFrom(
+//                     backgroundColor: TechColors.glowCyan.withOpacity(0.2),
+//                     foregroundColor: TechColors.glowCyan,
+//                     side: BorderSide(
+//                       color: TechColors.glowCyan.withOpacity(0.5),
+//                     ),
+//                   ),
+//                   child: const Text('确认'),
+//                 ),
+//               ],
+//             ),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+// }
+
+/// 悬停效果构建器
+class _HoverBuilder extends StatefulWidget {
+  final Widget child;
+  final Color hoverColor;
+
+  const _HoverBuilder({
+    required this.child,
+    required this.hoverColor,
+  });
+
+  @override
+  State<_HoverBuilder> createState() => _HoverBuilderState();
+}
+
+class _HoverBuilderState extends State<_HoverBuilder> {
+  bool _isHovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: TechColors.bgMedium,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(4),
-        side: BorderSide(
-          color: TechColors.glowCyan.withOpacity(0.5),
-        ),
-      ),
-      child: Container(
-        width: 400,
-        padding: const EdgeInsets.all(24),
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
         decoration: BoxDecoration(
-          color: TechColors.bgMedium,
+          color: _isHovered
+              ? widget.hoverColor.withOpacity(0.2)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-            color: TechColors.glowCyan.withOpacity(0.5),
-          ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.lock,
-                  color: TechColors.glowCyan,
-                  size: 24,
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  '管理员验证',
-                  style: TextStyle(
-                    color: TechColors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              '请输入管理员密码:',
-              style: TextStyle(
-                color: TechColors.textSecondary,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _passwordController,
-              obscureText: !_showPassword,
-              autofocus: true,
-              onSubmitted: (_) => _verify(),
-              style: const TextStyle(
-                color: TechColors.textPrimary,
-                fontSize: 14,
-              ),
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: TechColors.bgDeep,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: BorderSide(
-                    color: TechColors.borderDark,
-                  ),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: BorderSide(
-                    color: TechColors.borderDark,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: BorderSide(
-                    color: TechColors.glowCyan,
-                  ),
-                ),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _showPassword ? Icons.visibility : Icons.visibility_off,
-                    color: TechColors.textSecondary,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _showPassword = !_showPassword;
-                    });
-                  },
-                ),
-                hintText: '输入密码',
-                hintStyle: TextStyle(
-                  color: TechColors.textSecondary.withOpacity(0.5),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                OutlinedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop(false);
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: TechColors.textSecondary,
-                    side: BorderSide(
-                      color: TechColors.borderDark,
-                    ),
-                  ),
-                  child: const Text('取消'),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton(
-                  onPressed: _verify,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: TechColors.glowCyan.withOpacity(0.2),
-                    foregroundColor: TechColors.glowCyan,
-                    side: BorderSide(
-                      color: TechColors.glowCyan.withOpacity(0.5),
-                    ),
-                  ),
-                  child: const Text('确认'),
-                ),
-              ],
-            ),
-          ],
+        child: Center(
+          child: _isHovered
+              ? Icon(
+                  (widget.child as Icon).icon,
+                  size: (widget.child as Icon).size,
+                  color: widget.hoverColor,
+                )
+              : widget.child,
         ),
       ),
     );

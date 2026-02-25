@@ -246,7 +246,7 @@ class _HealthStatusWidgetState extends State<HealthStatusWidget> {
   }
 
   Widget _buildStatusIndicator(String label, bool isHealthy) {
-    final color = isHealthy ? TechColors.glowGreen : TechColors.glowRed;
+    final color = isHealthy ? TechColors.glowCyan : TechColors.glowRed;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(

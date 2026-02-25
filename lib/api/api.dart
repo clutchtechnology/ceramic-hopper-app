@@ -1,8 +1,11 @@
 // 后端API地址统一管理
 
 class Api {
-  // Mock后端端口: 8083 (生产环境: 8082)
-  static const String baseUrl = 'http://localhost:8083';
+  // 料仓后端端口: 8082
+  static const String baseUrl = 'http://localhost:8082';
+
+  // WebSocket 端点
+  static const String wsUrl = 'ws://localhost:8082/ws/realtime';
 
   // 健康检查
   static const String health = '/api/health';
@@ -41,6 +44,7 @@ class Api {
   static const String configServer = '/api/config/server';
   static const String configPlc = '/api/config/plc';
   static const String configPlcTest = '/api/config/plc/test';
+  static const String configDatabase = '/api/config/database';
 
   // 传感器状态位 (后端解析)
   static const String statusAll = '/api/status'; // 按DB分组

@@ -7,7 +7,7 @@ class ServerConfig {
   int port;
 
   ServerConfig({
-    this.ipAddress = '192.168.1.100',
+    this.ipAddress = '192.168.50.224',
     this.port = 8083,
   });
 
@@ -18,7 +18,7 @@ class ServerConfig {
 
   factory ServerConfig.fromJson(Map<String, dynamic> json) {
     return ServerConfig(
-      ipAddress: json['ipAddress'] as String? ?? '192.168.1.100',
+      ipAddress: json['ipAddress'] as String? ?? '192.168.50.224',
       port: json['port'] as int? ?? 8083,
     );
   }

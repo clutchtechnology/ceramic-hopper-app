@@ -1,0 +1,1170 @@
+---
+alwaysApply: true
+---
+
+# 料仓监控系统 Flutter 前端开发规则
+
+## 项目标识
+
+- **项目名称**: ceramic-hopper-app
+- **技术栈**: Flutter 3.29+ + Dart 3.4+ + WebSocket
+- **目标平台**: Windows (主要) / Android / iOS / Web
+- **核心理念**: WebSocket 实时通信 + 工业风格 UI + 固定分辨率设计
+
+## 架构原则
+
+### 1. 前后端通信架构 ⭐
+
+**Flutter 前端作为客户端，与后端通过两种方式通信**：
+
+#### 1.1 WebSocket 客户端（实时数据，主要）
+
+- **角色**: Flutter 是 WebSocket 客户端，后端是 WebSocket 服务器
+- **端点**: `ws://localhost:8080/ws/realtime`
+- **用途**: 实时数据推送（0.1s 间隔）
+- **连接管理**: 
+  - 单例 `WebSocketService` 管理全局唯一连接
+  - 自动重连：指数退避策略 (1s → 2s → 4s → 8s → 16s → 30s)
+  - 心跳保活：客户端每 15s 发送心跳，服务端 45s 超时断开
+- **消息订阅**: 
+  - `subscribe` - 订阅实时数据频道
+  - `heartbeat` - 发送心跳保持连接
+  - `realtime_data` - 接收实时数据推送
+  - `error` - 接收错误消息
+
+#### 1.2 HTTP 客户端（历史数据和配置，降级）
+
+- **角色**: Flutter 是 HTTP 客户端，后端是 HTTP 服务器
+- **Base URL**: `http://localhost:8080/api`
+- **用途**: 
+  - 历史数据查询（时间范围查询）
+  - 配置管理（读取/更新阈值配置）
+  - 健康检查（服务状态检测）
+  - 报警日志查询
+- **HTTP 方法**: 
+  - `GET` - 查询数据
+  - `POST` - 提交配置
+  - `PUT` - 更新配置
+  - `DELETE` - 删除数据
+
+### 2. 通信策略优先级
+
+```
+实时数据 → WebSocket (0.1s 推送)
+历史数据 → HTTP API (按需查询)
+配置管理 → HTTP API (按需读写)
+健康检查 → HTTP API (定时轮询)
+```
+
+### 3. 固定分辨率设计
+
+- **目标设备**: 10.4 英寸工业触摸屏
+- **分辨率**: 1280×800 (固定，不可调整)
+- **窗口模式**: 无边框窗口，隐藏原生标题栏
+- **布局策略**: 基于固定尺寸设计，不需要响应式布局
+
+### 4. 工业风格 UI
+
+- **主题色**: 科技蓝 (#00D4FF)
+- **背景色**: 深色背景 (#0A0E27, #1A1F3A)
+- **字体**: 等宽字体，清晰易读
+- **动画**: 简洁流畅，避免过度动画
+
+### 5. 数据流架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      后端服务器                               │
+│  ┌──────────────────┐         ┌──────────────────┐          │
+│  │ WebSocket Server │         │   HTTP Server    │          │
+│  │  (实时数据推送)   │         │  (历史数据查询)   │          │
+│  │  :8080/ws/*      │         │  :8080/api/*     │          │
+│  └────────┬─────────┘         └────────┬─────────┘          │
+└───────────┼──────────────────────────┼────────────────────┘
+            │                          │
+            │ WebSocket                │ HTTP
+            │ (0.1s 推送)              │ (按需请求)
+            ▼                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Flutter 前端客户端                          │
+│  ┌──────────────────┐         ┌──────────────────┐          │
+│  │ WebSocketService │         │  HTTP Services   │          │
+│  │   (单例模式)      │         │  (多个服务类)     │          │
+│  │                  │         │                  │          │
+│  │ - 连接管理        │         │ - HistoryService │          │
+│  │ - 自动重连        │         │ - ConfigService  │          │
+│  │ - 心跳保活        │         │ - HealthService  │          │
+│  │ - 消息分发        │         │ - AlarmService   │          │
+│  └────────┬─────────┘         └────────┬─────────┘          │
+│           │                            │                    │
+│           │ Callbacks                  │ async/await        │
+│           ▼                            ▼                    │
+│  ┌──────────────────────────────────────────────┐          │
+│  │            UI Layer (Pages/Widgets)          │          │
+│  │  - RealtimeDashboardPage (WebSocket)         │          │
+│  │  - DataHistoryPage (HTTP)                    │          │
+│  │  - SettingsPage (HTTP)                       │          │
+│  └──────────────────────────────────────────────┘          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 核心组件
+
+### WebSocket 层
+
+**文件**: `lib/services/websocket_service.dart`
+
+- **单例模式**: 全局唯一的 WebSocket 连接管理器
+- **连接状态**: `disconnected`, `connecting`, `connected`, `reconnecting`
+- **消息类型**: 
+  - `realtime_data`: 实时数据推送 (4号料仓综合监测单元)
+  - `heartbeat`: 心跳消息
+  - `error`: 错误消息
+- **回调机制**:
+  - `onRealtimeDataUpdate`: 实时数据更新回调
+  - `onStateChanged`: 连接状态变化回调
+  - `onError`: 错误回调
+
+### 服务层
+
+**文件**: `lib/services/`
+
+#### WebSocket 客户端服务
+
+- **websocket_service.dart**: WebSocket 连接管理器（核心）
+  - 单例模式，全局唯一连接
+  - 自动重连、心跳保活
+  - 消息订阅和分发
+  - 连接状态管理
+
+- **hopper_service.dart**: 料仓实时数据服务
+  - 封装 WebSocket 实时数据
+  - 提供高层 API 给 UI 层
+
+- **realtime_data_cache_service.dart**: 实时数据缓存服务
+  - 缓存最新的 WebSocket 推送数据
+  - 供 UI 层快速读取
+
+#### HTTP 客户端服务
+
+- **history_data_service.dart**: 历史数据查询服务
+  - 使用 HTTP GET 请求
+  - 查询指定时间范围的历史数据
+  - 支持多参数查询
+
+- **config_service.dart**: 配置管理服务
+  - 使用 HTTP GET/POST/PUT 请求
+  - 读取和更新阈值配置
+  - 管理系统设置
+
+- **sensor_status_service.dart**: 设备状态服务
+  - 使用 HTTP GET 请求
+  - 查询设备通信状态
+  - 定时健康检查
+
+- **alarm_service.dart**: 报警服务（如需要）
+  - 使用 HTTP GET 请求
+  - 查询报警日志
+  - 报警统计
+
+### 数据模型层
+
+**文件**: `lib/models/`
+
+- **hopper_model.dart**: 料仓数据模型
+  - `HopperRealtimeResponse`: 实时数据响应
+  - `HopperUnit`: 料仓单元数据
+  - `PM10Data`: PM10 粉尘浓度数据
+  - `TemperatureData`: 温度数据
+  - `ElectricityData`: 三相电表数据
+  - `VibrationData`: 振动传感器数据
+- **sensor_status_model.dart**: 设备状态模型
+- **config_models.dart**: 配置模型
+- **feeding_record.dart**: 投料记录模型
+
+### UI 层
+
+**文件**: `lib/pages/`, `lib/widgets/`
+
+- **realtime_dashboard_page.dart**: 实时监控主页面
+- **sensor_status_page.dart**: 设备状态页面
+- **data_history_page.dart**: 历史数据页面
+- **settings_page.dart**: 设置页面 (密码保护)
+- **top_bar.dart**: 顶部导航栏
+
+**自定义组件**:
+- **data_tech_line_chart.dart**: 科技风格折线图
+- **data_tech_bar_chart.dart**: 科技风格柱状图
+- **data_tech_line_widgets.dart**: 科技风格线条和装饰
+- **data_time_range_selector.dart**: 时间范围选择器
+- **dt_health_status.dart**: 健康状态指示器
+- **自定义图标**: PM10、温度、电流、功率、振动等
+
+## 编码规范
+
+### 1. 命名规范
+
+#### 1.1 基础命名规则
+
+- **文件名**: 小写下划线 `snake_case.dart`
+- **类名**: 大驼峰 `PascalCase`
+- **函数/变量**: 小驼峰 `camelCase`
+- **常量**: 小驼峰 `camelCase`
+- **私有成员**: 下划线前缀 `_private`
+
+### 2. 注释规范
+
+**使用清晰的注释风格**：
+
+```dart
+// 1. 初始化 WebSocket 服务
+WebSocketService() {
+  _socket = null;
+  _state = WebSocketState.disconnected;
+}
+
+// 2. 连接到服务器
+Future<void> connect() async {
+  if (_state == WebSocketState.connected) return;
+  // 连接逻辑
+}
+```
+
+**文件头部注释**：
+```dart
+// WebSocket 连接服务 - 料仓监控系统
+// 功能: 单例 WebSocket 连接管理，支持自动重连、心跳检测、消息分发
+```
+
+#### 2.1 禁止使用 Emoji 表情符号
+
+**原则**: 注释中不使用任何 emoji 图标或表情符号，保持代码的专业性和可读性。
+
+正确的注释：
+```dart
+// 1. 初始化 WebSocket 服务
+// 注意：这里需要检查连接状态
+// 警告：不要在主线程执行耗时操作
+// 成功：连接建立完成
+// 错误：连接失败
+```
+
+错误的注释（禁止使用）：
+```dart
+// 初始化 WebSocket 服务
+// 注意：这里需要检查连接状态
+// 错误：连接失败
+// 成功：连接建立完成
+```
+
+**原因说明**：
+1. **编码兼容性**: Emoji 可能在某些编辑器或终端中显示异常
+2. **代码审查**: 纯文本注释更易于代码审查和搜索
+3. **专业性**: 工业控制系统代码应保持严谨的专业风格
+4. **版本控制**: Emoji 在 Git diff 中可能显示为乱码
+5. **跨平台**: 不同操作系统对 Emoji 的支持程度不同
+
+### 3. 代码设计原则
+
+**避免过度抽象**：
+- **不要提前抽象**：需要用的时候再抽象，不要一开始就创建大量工具方法
+- **避免冗余方法**：一个文件不要抽象出太多方法，保持简洁
+- **实用主义**：能直接写就直接写，不要为了"优雅"而过度封装
+
+好的做法：
+```dart
+// 1. 更新显示数据
+void updateDisplay(HopperRealtimeResponse data) {
+  if (mounted) {
+    setState(() {
+      pm10Label.text = '${data.data.hopperUnit4.modules.pm10.fields.pm10Value.toStringAsFixed(1)} μg/m³';
+      tempLabel.text = '${data.data.hopperUnit4.modules.temperature.fields.temperatureValue.toStringAsFixed(1)} °C';
+    });
+  }
+}
+```
+
+过度抽象：
+```dart
+String _formatPM10(double value) {
+  return '${value.toStringAsFixed(1)} μg/m³';
+}
+
+String _formatTemperature(double value) {
+  return '${value.toStringAsFixed(1)} °C';
+}
+
+void _updateLabel(Widget label, String text) {
+  label.text = text;
+}
+
+void updateDisplay(HopperRealtimeResponse data) {
+  if (mounted) {
+    setState(() {
+      final pm10Text = _formatPM10(data.data.hopperUnit4.modules.pm10.fields.pm10Value);
+      final tempText = _formatTemperature(data.data.hopperUnit4.modules.temperature.fields.temperatureValue);
+      _updateLabel(pm10Label, pm10Text);
+      _updateLabel(tempLabel, tempText);
+    });
+  }
+}
+```
+
+### 4. WebSocket 客户端使用规范
+
+```dart
+// 正确：在 initState 中初始化 WebSocket 客户端
+@override
+void initState() {
+  super.initState();
+  // 获取 WebSocket 客户端单例
+  _wsService = WebSocketService();
+  
+  // 设置回调函数
+  _wsService.onRealtimeDataUpdate = _handleRealtimeData;
+  _wsService.onStateChanged = _handleStateChanged;
+  _wsService.onError = _handleError;
+  
+  // 连接到后端 WebSocket 服务器
+  _wsService.connect();
+  
+  // 订阅实时数据频道
+  _wsService.subscribeRealtime();
+}
+
+// 正确：在 dispose 中释放资源
+@override
+void dispose() {
+  // 清理回调（不断开连接，其他页面可能还在使用）
+  _wsService.onRealtimeDataUpdate = null;
+  _wsService.onStateChanged = null;
+  _wsService.onError = null;
+  super.dispose();
+}
+
+// 正确：处理 WebSocket 连接状态变化
+void _handleStateChanged(WebSocketState state) {
+  if (mounted) {
+    setState(() {
+      _connectionState = state;
+    });
+  }
+}
+
+// 正确：处理 WebSocket 推送的实时数据
+void _handleRealtimeData(HopperRealtimeResponse data) {
+  if (mounted) {
+    setState(() {
+      _data = data;
+    });
+  }
+}
+
+// 正确：处理 WebSocket 错误
+void _handleError(String error) {
+  if (mounted) {
+    _showError('WebSocket 错误: $error');
+  }
+}
+
+// 错误：不检查 mounted 状态
+void _handleRealtimeData(HopperRealtimeResponse data) {
+  setState(() {  // 可能在 dispose 后调用
+    _data = data;
+  });
+}
+
+// 错误：每个页面都创建新的 WebSocket 连接
+void initState() {
+  super.initState();
+  _wsService = WebSocketService()..connect();  // 错误！会创建多个连接
+}
+```
+
+### 5. 状态管理规范
+
+```dart
+// 正确：使用 StatefulWidget + setState
+class MyWidget extends StatefulWidget {
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  HopperRealtimeResponse? _data;
+  
+  void _updateData(HopperRealtimeResponse data) {
+    if (mounted) {
+      setState(() {
+        _data = data;
+      });
+    }
+  }
+}
+
+// 正确：使用 Provider (可选)
+class RealtimeConfigProvider extends ChangeNotifier {
+  Map<String, dynamic> _config = {};
+  
+  void updateConfig(Map<String, dynamic> config) {
+    _config = config;
+    notifyListeners();
+  }
+}
+
+// 错误：直接修改状态不调用 setState
+_data = newData;  // UI 不会更新
+```
+
+### 6. HTTP 客户端使用规范
+
+```dart
+// 正确：使用 async/await 发起 HTTP 请求
+Future<void> _loadHistoryData() async {
+  try {
+    // HTTP GET 请求查询历史数据
+    final response = await HistoryDataService.queryHistory(
+      deviceId: 'hopper_unit_4',
+      parameter: 'pm10_value',
+      interval: '5m',
+      start: DateTime.now().subtract(Duration(hours: 1)),
+      end: DateTime.now(),
+    );
+    if (mounted) {
+      setState(() {
+        _historyData = response;
+      });
+    }
+  } catch (e) {
+    _showError('HTTP 请求失败: $e');
+  }
+}
+
+// 正确：使用 HTTP POST 更新配置
+Future<void> _updateConfig(Map<String, dynamic> config) async {
+  try {
+    await ConfigService.updateConfig(config);
+    _showSuccess('配置更新成功');
+  } catch (e) {
+    _showError('HTTP 请求失败: $e');
+  }
+}
+
+// 正确：使用 FutureBuilder 发起 HTTP 请求
+FutureBuilder<HealthResponse>(
+  future: HealthService.checkHealth(),  // HTTP GET 请求
+  builder: (context, snapshot) {
+    if (snapshot.hasData) {
+      return Text('健康');
+    }
+    if (snapshot.hasError) {
+      return Text('错误: ${snapshot.error}');
+    }
+    return CircularProgressIndicator();
+  },
+)
+
+// 正确：定时发起 HTTP 健康检查
+Timer.periodic(Duration(seconds: 30), (timer) async {
+  try {
+    final health = await HealthService.checkHealth();
+    if (mounted) {
+      setState(() {
+        _healthStatus = health;
+      });
+    }
+  } catch (e) {
+    print('健康检查失败: $e');
+  }
+});
+
+// 错误：不处理异常
+final data = await api.getData();  // 可能抛出异常，会导致应用崩溃
+
+// 错误：在 UI 线程执行耗时的 HTTP 请求
+void onButtonPressed() {
+  final data = HistoryDataService.queryHistory(...);  // 阻塞 UI！
+  setState(() => _data = data);
+}
+```
+
+### 7. UI 布局规范
+
+```dart
+// 正确：使用固定尺寸布局
+Container(
+  width: 1280,
+  height: 800,
+  child: Row(
+    children: [
+      SizedBox(width: 640, child: LeftPanel()),
+      SizedBox(width: 640, child: RightPanel()),
+    ],
+  ),
+)
+
+// 正确：使用 Expanded 分配剩余空间
+Row(
+  children: [
+    SizedBox(width: 200, child: Sidebar()),
+    Expanded(child: MainContent()),
+  ],
+)
+
+// 错误：使用响应式布局
+MediaQuery.of(context).size.width  // 不需要，固定 1280
+```
+
+### 8. 颜色和样式规范
+
+```dart
+// 正确：使用 TechColors 常量
+import '../utils/constants.dart';
+
+Container(
+  decoration: BoxDecoration(
+    color: TechColors.cardBackground,
+    border: Border.all(color: TechColors.primary),
+  ),
+)
+
+// 正确：使用自定义组件
+DataTechLineChart(
+  title: 'PM10 浓度趋势',
+  data: pm10Data,
+)
+
+// 错误：硬编码颜色
+Container(
+  color: Color(0xFF00D4FF),  // 应使用 TechColors.primary
+)
+```
+
+### 9. 错误处理规范
+
+```dart
+// 正确：显示用户友好的错误信息
+void _showError(String message) {
+  if (mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+}
+
+// 正确：WebSocket 错误处理
+_wsService.onError = (error) {
+  _showError('连接错误: $error');
+};
+
+// 错误：忽略错误
+try {
+  await api.getData();
+} catch (e) {
+  // 什么都不做
+}
+```
+
+## API 接口规范
+
+### WebSocket 接口 (实时数据，主要)
+
+**Flutter 作为 WebSocket 客户端连接到后端服务器**
+
+**端点**: `ws://localhost:8080/ws/realtime`
+
+**客户端发送消息**:
+```dart
+// 1. 订阅实时数据频道
+wsService.send({
+  'type': 'subscribe',
+  'channel': 'realtime',
+});
+
+// 或使用封装方法
+wsService.subscribeRealtime();
+
+// 2. 发送心跳保持连接
+wsService.send({
+  'type': 'heartbeat',
+  'timestamp': DateTime.now().toIso8601String(),
+});
+
+// 3. 取消订阅
+wsService.send({
+  'type': 'unsubscribe',
+  'channel': 'realtime',
+});
+```
+
+**服务端推送消息**:
+```dart
+// 实时数据推送 (0.1s 间隔)
+{
+  "type": "realtime_data",
+  "success": true,
+  "timestamp": "2026-02-09T10:30:00.000Z",
+  "source": "plc",
+  "data": {
+    "hopper_unit_4": {
+      "device_id": "hopper_unit_4",
+      "device_name": "4号料仓综合监测单元",
+      "device_type": "hopper_sensor_unit",
+      "timestamp": "2026-02-09T10:30:00.000Z",
+      "modules": {
+        "pm10": {
+          "module_type": "pm10",
+          "fields": {"pm10_value": 45.2}
+        },
+        "temperature": {
+          "module_type": "temperature",
+          "fields": {"temperature_value": 28.5}
+        },
+        "electricity": {
+          "module_type": "electricity",
+          "fields": {
+            "Pt": 5.6,
+            "ImpEp": 1234.5,
+            "Ua_0": 380.5,
+            "I_0": 12.3,
+            "I_1": 12.1,
+            "I_2": 12.4
+          }
+        },
+        "vibration_selected": {
+          "module_type": "vibration_selected",
+          "fields": {
+            "vx": 2.3,
+            "vy": 2.1,
+            "vz": 1.8,
+            "vrms_x": 1.5,
+            "vrms_y": 1.4,
+            "vrms_z": 1.2,
+            "freq_x": 50.2,
+            "freq_y": 50.1,
+            "freq_z": 50.3,
+            "temperature": 45.6
+          }
+        }
+      }
+    }
+  }
+}
+
+// 错误消息
+{
+  "type": "error",
+  "success": false,
+  "message": "连接超时",
+  "timestamp": "2026-02-09T10:30:00.000Z"
+}
+```
+
+### HTTP 接口 (历史数据和配置，降级)
+
+**Flutter 作为 HTTP 客户端向后端发起请求**
+
+**Base URL**: `http://localhost:8080/api`
+
+#### 1. 历史数据查询
+
+```dart
+// GET /api/hopper/{device_id}/history
+final response = await HistoryDataService.queryHistory(
+  deviceId: 'hopper_unit_4',
+  parameter: 'pm10_value',  // 或 'temperature_value', 'Pt', 'vx' 等
+  interval: '5m',           // 5分钟间隔
+  start: DateTime.now().subtract(Duration(hours: 1)),
+  end: DateTime.now(),
+);
+
+// 响应格式
+{
+  "success": true,
+  "data": [
+    {
+      "timestamp": "2026-02-09T10:00:00.000Z",
+      "value": 45.2
+    },
+    {
+      "timestamp": "2026-02-09T10:05:00.000Z",
+      "value": 46.1
+    }
+  ]
+}
+```
+
+#### 2. 配置管理
+
+```dart
+// GET /api/config - 读取配置
+final config = await ConfigService.getConfig();
+
+// POST /api/config - 更新配置
+await ConfigService.updateConfig({
+  'pm10_threshold': 100.0,
+  'temperature_threshold': 80.0,
+});
+
+// 响应格式
+{
+  "success": true,
+  "message": "配置更新成功"
+}
+```
+
+#### 3. 健康检查
+
+```dart
+// GET /api/health
+final health = await HealthService.checkHealth();
+
+// 响应格式
+{
+  "success": true,
+  "status": "healthy",
+  "timestamp": "2026-02-09T10:30:00.000Z",
+  "services": {
+    "websocket": "running",
+    "influxdb": "connected",
+    "plc": "connected"
+  }
+}
+```
+
+#### 4. 设备状态查询
+
+```dart
+// GET /api/sensor/status
+final status = await SensorStatusService.getStatus();
+
+// 响应格式
+{
+  "success": true,
+  "data": {
+    "hopper_unit_4": {
+      "status": "normal",
+      "last_update": "2026-02-09T10:30:00.000Z"
+    }
+  }
+}
+```
+
+#### 5. 报警日志查询（如需要）
+
+```dart
+// GET /api/alarms
+final alarms = await AlarmService.getAlarms(
+  start: DateTime.now().subtract(Duration(days: 7)),
+  end: DateTime.now(),
+);
+
+// 响应格式
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "device_id": "hopper_unit_4",
+      "parameter": "pm10_value",
+      "value": 150.0,
+      "threshold": 100.0,
+      "timestamp": "2026-02-09T10:30:00.000Z",
+      "level": "warning"
+    }
+  ]
+}
+```
+
+## 性能优化
+
+### 1. WebSocket 连接管理
+
+```dart
+// 正确：单例模式，全局共享 WebSocket 连接
+final wsService = WebSocketService();  // 单例，整个应用只有一个实例
+
+// 正确：页面切换时不断开 WebSocket 连接
+@override
+void dispose() {
+  // 只清理回调，不断开连接（其他页面可能还在使用）
+  wsService.onRealtimeDataUpdate = null;
+  wsService.onStateChanged = null;
+  super.dispose();
+}
+
+// 正确：应用退出时才断开 WebSocket 连接
+void onAppExit() {
+  wsService.disconnect();
+}
+
+// 错误：每个页面都创建新的 WebSocket 连接
+final wsService = WebSocketService()..connect();  // 会创建多个连接，浪费资源
+
+// 错误：页面切换时断开 WebSocket 连接
+@override
+void dispose() {
+  wsService.disconnect();  // 错误！其他页面还需要实时数据
+  super.dispose();
+}
+```
+
+### 2. HTTP 请求优化
+
+```dart
+// 正确：使用单例 HTTP 客户端
+class ApiClient {
+  static final ApiClient _instance = ApiClient._internal();
+  factory ApiClient() => _instance;
+  
+  late final Dio _dio;
+  
+  ApiClient._internal() {
+    _dio = Dio(BaseOptions(
+      baseUrl: 'http://localhost:8080/api',
+      connectTimeout: Duration(seconds: 5),
+      receiveTimeout: Duration(seconds: 10),
+    ));
+  }
+  
+  Future<Response> get(String path) => _dio.get(path);
+  Future<Response> post(String path, dynamic data) => _dio.post(path, data: data);
+}
+
+// 正确：缓存 HTTP 响应，避免重复请求
+class ConfigService {
+  static Map<String, dynamic>? _cachedConfig;
+  static DateTime? _cacheTime;
+  
+  static Future<Map<String, dynamic>> getConfig({bool forceRefresh = false}) async {
+    // 缓存 5 分钟
+    if (!forceRefresh && 
+        _cachedConfig != null && 
+        _cacheTime != null &&
+        DateTime.now().difference(_cacheTime!) < Duration(minutes: 5)) {
+      return _cachedConfig!;
+    }
+    
+    final response = await ApiClient().get('/config');
+    _cachedConfig = response.data;
+    _cacheTime = DateTime.now();
+    return _cachedConfig!;
+  }
+}
+
+// 错误：每次都创建新的 HTTP 客户端
+Future<void> fetchData() async {
+  final dio = Dio();  // 错误！应该使用单例
+  await dio.get('http://localhost:8080/api/data');
+}
+
+// 错误：频繁发起相同的 HTTP 请求
+Timer.periodic(Duration(milliseconds: 100), (timer) async {
+  await ConfigService.getConfig();  // 错误！配置不需要这么频繁更新
+});
+```
+
+### 2. UI 更新优化
+
+```dart
+// 正确：使用 ValueNotifier 减少重建
+class MyWidget extends StatefulWidget {
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  final ValueNotifier<double> _pm10 = ValueNotifier(0.0);
+  
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<double>(
+      valueListenable: _pm10,
+      builder: (context, value, child) {
+        return Text('$value μg/m³');
+      },
+    );
+  }
+}
+
+// 错误：频繁调用 setState 重建整个页面
+void _updateData(data) {
+  setState(() {  // 重建整个页面
+    _allData = data;
+  });
+}
+```
+
+### 3. 图表性能优化
+
+```dart
+// 正确：限制数据点数量
+List<FlSpot> _prepareChartData(List<HistoryPoint> data) {
+  if (data.length > 100) {
+    // 采样：每 N 个点取 1 个
+    final step = data.length ~/ 100;
+    return data
+        .where((point) => data.indexOf(point) % step == 0)
+        .map((point) => FlSpot(point.x, point.y))
+        .toList();
+  }
+  return data.map((point) => FlSpot(point.x, point.y)).toList();
+}
+
+// 错误：显示所有数据点
+final spots = data.map((p) => FlSpot(p.x, p.y)).toList();  // 可能有 10000+ 个点
+```
+
+## 常见问题
+
+### 1. WebSocket 连接失败
+
+**原因**: 后端服务未启动、URL 错误、网络问题
+
+**解决**:
+```dart
+// 检查后端服务状态
+final health = await HealthService.checkHealth();
+
+// 检查 WebSocket URL
+print(WebSocketService().wsUrl);  // ws://localhost:8080/ws/realtime
+
+// 查看连接状态
+wsService.onStateChanged = (state) {
+  print('WebSocket 状态: $state');
+};
+```
+
+### 2. 数据不更新
+
+**原因**: 未订阅频道、回调未设置、mounted 检查失败
+
+**解决**:
+```dart
+// 确保订阅了频道
+wsService.subscribeRealtime();
+
+// 确保设置了回调
+wsService.onRealtimeDataUpdate = (data) {
+  if (mounted) {
+    setState(() {
+      _data = data;
+    });
+  }
+};
+
+// 检查连接状态
+if (wsService.state != WebSocketState.connected) {
+  wsService.connect();
+}
+```
+
+### 3. 内存泄漏
+
+**原因**: 未释放 WebSocket 回调、定时器未取消
+
+**解决**:
+```dart
+@override
+void dispose() {
+  // 清理回调
+  wsService.onRealtimeDataUpdate = null;
+  
+  // 取消定时器
+  _timer?.cancel();
+  
+  super.dispose();
+}
+```
+
+### 4. UI 卡顿
+
+**原因**: 频繁 setState、大量数据渲染、复杂布局
+
+**解决**:
+```dart
+// 使用 ValueNotifier 代替 setState
+final _pm10 = ValueNotifier<double>(0.0);
+
+// 限制更新频率
+Timer? _updateTimer;
+void _scheduleUpdate(data) {
+  _updateTimer?.cancel();
+  _updateTimer = Timer(Duration(milliseconds: 100), () {
+    setState(() => _data = data);
+  });
+}
+
+// 使用 const 构造函数
+const Text('标题', style: TextStyle(fontSize: 16));
+```
+
+## 文件结构速查
+
+```
+lib/
+├── main.dart                          # 入口文件
+├── api/
+│   ├── api.dart                       # API 配置 (URL)
+│   └── index.dart                     # 导出
+├── models/
+│   ├── hopper_model.dart              # 料仓数据模型
+│   ├── sensor_status_model.dart       # 设备状态模型
+│   ├── config_models.dart             # 配置模型
+│   └── feeding_record.dart            # 投料记录模型
+├── services/
+│   ├── websocket_service.dart         # WebSocket 服务 (核心)
+│   ├── hopper_service.dart            # 料仓实时数据服务
+│   ├── sensor_status_service.dart     # 设备状态服务
+│   ├── history_data_service.dart      # 历史数据服务
+│   ├── config_service.dart            # 配置管理服务
+│   └── realtime_data_cache_service.dart # 实时数据缓存服务
+├── pages/
+│   ├── realtime_dashboard_page.dart   # 实时监控主页面
+│   ├── sensor_status_page.dart        # 设备状态页面
+│   ├── data_history_page.dart         # 历史数据页面
+│   ├── settings_page.dart             # 设置页面
+│   └── top_bar.dart                   # 顶部导航栏
+├── widgets/
+│   ├── data_display/                  # 数据显示组件
+│   │   ├── data_tech_line_chart.dart  # 科技风格折线图
+│   │   ├── data_tech_bar_chart.dart   # 科技风格柱状图
+│   │   ├── data_tech_line_widgets.dart # 科技风格线条
+│   │   ├── data_time_range_selector.dart # 时间范围选择器
+│   │   ├── data_multi_select_dropdown.dart # 多选下拉框
+│   │   └── data_single_select_dropdown.dart # 单选下拉框
+│   ├── icons/                         # 自定义图标
+│   │   ├── thermometer_icon.dart      # 温度图标
+│   │   ├── current_icon.dart          # 电流图标
+│   │   ├── power_icon.dart            # 功率图标
+│   │   ├── energy_icon.dart           # 能量图标
+│   │   ├── weight_icon.dart           # 重量图标
+│   │   ├── flow_rate_icon.dart        # 流量图标
+│   │   └── feed_rate_icon.dart        # 投料速率图标
+│   ├── realtime_dashboard/            # 实时监控组件
+│   ├── settings/                      # 设置组件
+│   │   └── realtime_data_settings_widget.dart
+│   └── top_bar/                       # 顶部栏组件
+│       └── dt_health_status.dart      # 健康状态指示器
+├── providers/
+│   ├── admin_provider.dart            # 管理员权限 Provider
+│   ├── backend_config_provider.dart   # 后端配置 Provider
+│   ├── realtime_config_provider.dart  # 实时配置 Provider
+│   └── index.dart                     # 导出
+└── utils/
+    └── app_logger.dart                # 日志工具
+```
+
+## 开发流程
+
+### 1. 启动后端服务
+
+```bash
+# 在后端项目目录
+cd ceramic-hopper-backend
+python main.py  # Mock 模式
+# 或
+mock_mode=false python main.py  # 生产模式
+```
+
+### 2. 启动 Flutter 应用
+
+```bash
+# Windows 平台
+flutter run -d windows
+
+# 热重载
+r  # 热重载
+R  # 热重启
+q  # 退出
+```
+
+### 3. 调试 WebSocket
+
+```dart
+// 在代码中添加日志
+wsService.onStateChanged = (state) {
+  print('[WS] 状态变化: $state');
+};
+
+wsService.onRealtimeDataUpdate = (data) {
+  print('[WS] 收到实时数据: ${data.data.hopperUnit4.deviceName}');
+};
+
+wsService.onError = (error) {
+  print('[WS] 错误: $error');
+};
+```
+
+### 4. 构建发布版本
+
+```bash
+# Windows
+flutter build windows --release
+
+# 输出目录
+build/windows/x64/runner/Release/
+```
+
+## 技术约定
+
+### 依赖管理
+
+```yaml
+dependencies:
+  flutter: sdk
+  http: ^1.2.0          # HTTP 客户端
+  dio: ^5.4.0           # 高级 HTTP 客户端
+  fl_chart: ^0.68.0     # 图表库
+  window_manager: ^0.3.9 # 窗口管理
+  shared_preferences: ^2.2.3 # 本地存储
+  intl: ^0.20.2         # 国际化
+  provider: ^6.1.0      # 状态管理
+```
+
+### 代码风格
+
+- 使用 `flutter analyze` 检查代码
+- 遵循 Dart 官方代码风格
+- 类名使用大驼峰 `PascalCase`
+- 变量/函数使用小驼峰 `camelCase`
+- 私有成员使用下划线前缀 `_private`
+- 常量使用小驼峰 `camelCase`
+
+## AI 编码指令
+
+1. **WebSocket 优先**: 实时数据必须使用 WebSocket，HTTP 仅用于历史查询
+2. **单例模式**: WebSocketService 必须使用单例，避免多个连接
+3. **状态检查**: 所有 setState 前必须检查 `mounted`
+4. **资源释放**: dispose 中必须清理回调和定时器
+5. **错误处理**: 所有异步操作必须有 try-catch
+6. **固定布局**: 使用固定尺寸 1280×800，不需要响应式
+7. **工业风格**: 使用 TechColors 常量，保持科技感
+8. **性能优化**: 使用 ValueNotifier、限制数据点、const 构造函数
+9. **协议兼容**: 严格遵循后端 WebSocket 协议规范
+10. **用户体验**: 显示连接状态、加载指示器、错误提示
+
+## 参考文档
+
+- `docs/WEBSOCKET_PROTOCOL.md` - WebSocket 协议规范（与后端共享）
+- `README.md` - 项目说明
+- 后端文档: `ceramic-hopper-backend/.cursor/rules/hopper.mdc`
+
+## 其他规范
+
+- **PowerShell 命令**：不支持 `&&`，使用分号 `;` 分隔命令
+- **称呼**：每次回答必须称呼我为"大王"
+- **测试文件**：不要创建多余的 md/py/test 文件，测试完毕后一定要删除,并且我的任何测试代码不要使用 emoji.
+- **文档管理**：md 文件需要放到 `vdoc/` 目录里面
+- **代码整洁**：目录务必整洁，修改代码时删除旧代码，不要冗余
+- **回答执行规范**：你是一个很严格的 Flutter 开发高手,你很严谨认真,且对代码很严苛,不会写无用冗余代码,并且很多问题,对于我希望实现的效果和架构你会认真思考,如果我的提议不好或者你有更好的方案,你会规劝我.
+- **反驳我的回答** 对于我说的需求等的话,肯定会有一些东西说的不专业,如果你理解了的话,就回答我,"大王,小的罪该万死,但是这个XXXX"这样回答.
+- **编码问题** 我的代码文件肯定会就是有中文和 Dart 代码,以及可能会有图标,所以的话,生成的代码需要规避编码问题错误.
+- **log以及代码文件** 我的代码文件以及log的输出的话,等一切不要使用图标等标注.
+- **不要虚构** 回答我以及生成的md文件之中一定要和我的实际的代码文件相关,而不是虚构的.
+- **必须真实有效的回答我,不能虚构**不要虚构任何我项目没有的文件,回答也必须严谨有效,而不是虚构.
+- **测试脚本和启动脚本文件最小化原则**尽量不要创建脚本而是直接给我一组命令行就行,如果需要保留为脚本我会提创建脚本的需求.

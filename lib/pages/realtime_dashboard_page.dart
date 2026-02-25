@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:fl_chart/fl_chart.dart';
+import 'package:provider/provider.dart';
 import '../models/hopper_model.dart';
 import '../services/hopper_service.dart';
 import '../services/realtime_data_cache_service.dart';
 import '../utils/app_logger.dart';
 import '../widgets/data_display/data_tech_line_widgets.dart';
+import '../providers/hopper_threshold_provider.dart';
 
 class RealtimeDashboardPage extends StatefulWidget {
   const RealtimeDashboardPage({super.key});
@@ -14,39 +15,20 @@ class RealtimeDashboardPage extends StatefulWidget {
   State<RealtimeDashboardPage> createState() => RealtimeDashboardPageState();
 }
 
-class RealtimeDashboardPageState extends State<RealtimeDashboardPage> {
+class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
+    with AutomaticKeepAliveClientMixin {
   final HopperService _hopperService = HopperService();
   final RealtimeDataCacheService _cacheService = RealtimeDataCacheService();
 
-  Timer? _timer;
   Map<String, HopperData> _hopperData = {};
-  bool _isRefreshingState = false;
+  final bool _isRefreshingState = false;
 
   // Getter for TopBar
   bool get isRefreshing => _isRefreshingState;
 
-  // 按照您的要求，主要关注这几个料仓
-  final List<String> _displayOrderIds = [
-    'long_hopper_1',
-    'long_hopper_2',
-    'long_hopper_3',
-  ];
-
-  final Map<String, String> _displayNames = {
-    'long_hopper_1': '长窑料仓 #1',
-    'long_hopper_2': '长窑料仓 #2',
-    'long_hopper_3': '长窑料仓 #3',
-  };
-
-  // 轮询控制
-  int _consecutiveFailures = 0;
-  static const int _normalIntervalSeconds = 5;
-
-  // 三轴速度RMS曲线数据（最多20组）
-  static const int _maxVibrationPoints = 20;
-  final List<FlSpot> _vrmsXSeries = [];
-  final List<FlSpot> _vrmsYSeries = [];
-  final List<FlSpot> _vrmsZSeries = [];
+  // 保持页面存活, 切换Tab时不销毁
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -56,35 +38,33 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage> {
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _hopperService.unsubscribe();
     super.dispose();
   }
 
   // Exposed method for TopBar
   Future<void> refreshData() async {
-    await _fetchData();
+    logger.info('RealtimeDashboardPage: 手动刷新数据');
   }
 
   void pausePolling() {
-    _timer?.cancel();
-    _timer = null;
-    logger.info('RealtimeDashboardPage: 轮询已暂停');
+    logger.info('RealtimeDashboardPage: WebSocket 模式，无需暂停');
   }
 
   void resumePolling() {
-    if (_timer == null) {
-      _startPolling();
-      _fetchData();
-      logger.info('RealtimeDashboardPage: 轮询已恢复');
-    }
+    logger.info('RealtimeDashboardPage: WebSocket 模式，无需恢复');
+  }
+
+  void onPageEnter() {
+    resumePolling();
   }
 
   Future<void> _initData() async {
     await _loadCachedData();
-    _fetchData();
-    _startPolling();
+    _subscribeWebSocket();
   }
 
+  // 1. 加载缓存数据
   Future<void> _loadCachedData() async {
     try {
       final cachedData = await _cacheService.loadCache();
@@ -98,924 +78,666 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage> {
     }
   }
 
-  void _startPolling() {
-    _timer?.cancel();
-    int interval = _normalIntervalSeconds;
-    if (_consecutiveFailures > 0) {
-      interval = (_normalIntervalSeconds * (1 << _consecutiveFailures))
-          .clamp(_normalIntervalSeconds, 60);
-    }
+  // 2. 订阅 WebSocket 实时数据
+  void _subscribeWebSocket() {
+    _hopperService.onRealtimeDataUpdate = _handleRealtimeData;
+    _hopperService.subscribeRealtime();
+    logger.info('RealtimeDashboardPage: 已订阅 WebSocket 实时数据');
+  }
 
-    _timer = Timer.periodic(Duration(seconds: interval), (_) {
-      if (mounted) _fetchData();
+  // 3. 处理 WebSocket 推送的实时数据
+  void _handleRealtimeData(HopperRealtimeResponse response) {
+    if (!mounted) return;
+
+    setState(() {
+      _hopperData = response.data;
     });
+
+    // 保存到缓存
+    _cacheService.saveCache(hopperData: _hopperData);
+    logger.debug('RealtimeDashboardPage: 收到实时数据，设备数: ${_hopperData.length}');
   }
 
-  Future<void> _fetchData() async {
-    if (_isRefreshingState) return;
-
-    _isRefreshingState = true;
-
-    try {
-      final newData = await _hopperService.getHopperBatchData();
-      if (mounted) {
-        setState(() {
-          _hopperData = newData;
-          _consecutiveFailures = 0;
-          _appendVibrationSeries(newData);
-        });
-        // 缓存数据
-        _cacheService.saveCache(hopperData: newData);
-      }
-    } catch (e) {
-      _consecutiveFailures++;
-      logger.error('获取实时数据失败', e);
-    } finally {
-      if (mounted) {
-        // Only update state if mounted, although _isRefreshingState is not impacting UI directly here
-        // But if we used setState above, we should ensure it's safe.
-        _isRefreshingState = false;
-      } else {
-        _isRefreshingState = false;
-      }
-
-      // Restart timer if interval needs adjustment
-      if (_consecutiveFailures > 0 && _timer != null) {
-        _startPolling();
-      }
-    }
+  // 获取第一个料仓数据
+  HopperData? _getFirstHopperData() {
+    if (_hopperData.isEmpty) return null;
+    return _hopperData.values.first;
   }
 
-  void _appendVibrationSeries(Map<String, HopperData> data) {
-    if (data.isEmpty) return;
+  @override
+  Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin 要求
+    final hopperData = _getFirstHopperData();
 
-    final target = _getTargetHopperData(data);
-    final vibration = target?.vibration;
-    if (vibration == null) return;
-
-    final now = DateTime.now().millisecondsSinceEpoch.toDouble();
-    _vrmsXSeries.add(FlSpot(now, vibration.vrmsX));
-    _vrmsYSeries.add(FlSpot(now, vibration.vrmsY));
-    _vrmsZSeries.add(FlSpot(now, vibration.vrmsZ));
-
-    if (_vrmsXSeries.length > _maxVibrationPoints) {
-      _vrmsXSeries.removeAt(0);
-      _vrmsYSeries.removeAt(0);
-      _vrmsZSeries.removeAt(0);
-    }
-  }
-
-  HopperData? _getTargetHopperData(Map<String, HopperData> data) {
-    if (data.isEmpty) return null;
-    for (final id in _displayOrderIds) {
-      if (data[id] != null) return data[id];
-    }
-    return data.values.first;
-  }
-
-  VibrationData? _getTargetVibration(Map<String, HopperData> data) {
-    return _getTargetHopperData(data)?.vibration;
-  }
-
-  // ===== 统计计算方法 =====
-  double _getTotalWeight() {
-    double total = 0.0;
-    for (final id in _displayOrderIds) {
-      total += _hopperData[id]?.weighSensor?.weight ?? 0.0;
-    }
-    return total;
-  }
-
-  double _getAvgFeedRate() {
-    double sum = 0.0;
-    int count = 0;
-    for (final id in _displayOrderIds) {
-      final rate = _hopperData[id]?.weighSensor?.feedRate;
-      if (rate != null && rate > 0) {
-        sum += rate;
-        count++;
-      }
-    }
-    return count > 0 ? sum / count : 0.0;
-  }
-
-  double _getAvgTemperature() {
-    double sum = 0.0;
-    int count = 0;
-    for (final id in _displayOrderIds) {
-      final temp = _hopperData[id]?.temperatureSensor?.temperature;
-      if (temp != null && temp > 0) {
-        sum += temp;
-        count++;
-      }
-    }
-    return count > 0 ? sum / count : 0.0;
-  }
-
-  int _getOnlineCount() {
-    int count = 0;
-    for (final id in _displayOrderIds) {
-      if (_hopperData[id] != null) count++;
-    }
-    return count;
-  }
-
-  // ===== 构建振动曲线图 =====
-  Widget _buildVibrationRmsChart(VibrationData? vibration) {
-    if (_vrmsXSeries.isEmpty || _vrmsYSeries.isEmpty || _vrmsZSeries.isEmpty) {
-      return const Center(
-        child: Text('暂无振动速度数据', style: TextStyle(color: Colors.grey)),
-      );
-    }
-
-    final allY = [
-      ..._vrmsXSeries.map((e) => e.y),
-      ..._vrmsYSeries.map((e) => e.y),
-      ..._vrmsZSeries.map((e) => e.y),
-    ];
-    final maxY =
-        (allY.isEmpty ? 1.0 : allY.reduce((a, b) => a > b ? a : b)) * 1.2;
-    final minX = _vrmsXSeries.length == 1
-        ? _vrmsXSeries.first.x - 1
-        : _vrmsXSeries.first.x;
-    final maxX = _vrmsXSeries.length == 1
-        ? _vrmsXSeries.first.x + 1
-        : _vrmsXSeries.last.x;
-
-    return Column(
-      children: [
-        if (vibration != null) ...[
-          _buildAxisBadge(
-            title: '频率 (Hz)',
-            icon: Icons.waves,
-            values: [
-              _AxisValue('X', vibration.freqX, TechColors.glowCyan),
-              _AxisValue('Y', vibration.freqY, TechColors.glowOrange),
-              _AxisValue('Z', vibration.freqZ, TechColors.glowGreen),
-            ],
-          ),
-          const SizedBox(height: 6),
-          _buildAxisBadge(
-            title: '峭度 (g)',
-            icon: Icons.analytics_outlined,
-            values: [
-              _AxisValue('KX', vibration.kx, TechColors.glowCyan),
-              _AxisValue('KY', vibration.ky, TechColors.glowOrange),
-              _AxisValue('KZ', vibration.kz, TechColors.glowGreen),
-            ],
-          ),
-          const SizedBox(height: 10),
-        ],
-        Expanded(
-          child: LineChart(
-            LineChartData(
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: true,
-                getDrawingHorizontalLine: (value) => const FlLine(
-                  color: Color(0xFF21262d),
-                  strokeWidth: 1,
-                ),
-                getDrawingVerticalLine: (value) => const FlLine(
-                  color: Color(0xFF21262d),
-                  strokeWidth: 1,
-                ),
-              ),
-              titlesData: FlTitlesData(
-                show: true,
-                rightTitles:
-                    const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                topTitles:
-                    const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                bottomTitles:
-                    const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 40,
-                    getTitlesWidget: (value, meta) {
-                      return Text(
-                        value.toStringAsFixed(1),
-                        style:
-                            const TextStyle(color: Colors.grey, fontSize: 10),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              borderData: FlBorderData(show: false),
-              minX: minX,
-              maxX: maxX,
-              minY: 0,
-              maxY: maxY,
-              lineBarsData: [
-                _buildLine(_vrmsXSeries, TechColors.glowCyan),
-                _buildLine(_vrmsYSeries, TechColors.glowOrange),
-                _buildLine(_vrmsZSeries, TechColors.glowGreen),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _buildLegendItem('VRMSX', TechColors.glowCyan),
-            const SizedBox(width: 12),
-            _buildLegendItem('VRMSY', TechColors.glowOrange),
-            const SizedBox(width: 12),
-            _buildLegendItem('VRMSZ', TechColors.glowGreen),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDisplacementTrapezoid(VibrationData? vibration) {
-    if (vibration == null) {
-      return const Center(
-        child: Text('暂无位移数据', style: TextStyle(color: Colors.grey)),
-      );
-    }
-
-    return SizedBox(
-      height: 120,
+    return Container(
+      color: TechColors.bgDeep,
       child: Row(
         children: [
-          SizedBox(
-            width: 72,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildAxisValue('X', vibration.dx, TechColors.glowCyan),
-                _buildAxisValue('Y', vibration.dy, TechColors.glowOrange),
-                _buildAxisValue('Z', vibration.dz, TechColors.glowGreen),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
+          // 左侧：数据列表区域 (40%) - 已注释
+          // Expanded(
+          //   flex: 40,
+          //   child: _buildLeftDataPanel(hopperData),
+          // ),
+          // 右侧：料仓结构图 (100% 全屏)
           Expanded(
-            child: CustomPaint(
-              painter: _TrapezoidPainter(
-                borderColor: TechColors.glowCyan,
-                axisColors: const [
-                  TechColors.glowCyan,
-                  TechColors.glowOrange,
-                  TechColors.glowGreen,
-                ],
-                gridColor: TechColors.gridLine,
-              ),
-            ),
+            flex: 100,
+            child: _buildRightHopperPanel(hopperData),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildAxisValue(String label, double value, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-              color: color, fontSize: 12, fontWeight: FontWeight.w600),
+  /// 左侧数据面板：两列 10 行, 左列10条(PM10+温度+8电表), 右列9条(振动)+1空
+  Widget _buildLeftDataPanel(HopperData? data) {
+    return Container(
+      margin: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: TechColors.bgDark,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: TechColors.glowCyan.withOpacity(0.5),
+          width: 1,
         ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            value.toStringAsFixed(1),
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
+      ),
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        children: List.generate(10, (rowIndex) {
+          return Expanded(
+            child: Container(
+              margin: EdgeInsets.only(bottom: rowIndex < 9 ? 1 : 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildDataCell(rowIndex, 0, data),
+                  ),
+                  const SizedBox(width: 1),
+                  Expanded(
+                    child: _buildDataCell(rowIndex, 1, data),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  /// 构建单个数据单元格 (10行x2列, 左列索引 0-9, 右列索引 10-19)
+  Widget _buildDataCell(int row, int col, HopperData? data) {
+    final thresholdProvider = context.watch<HopperThresholdProvider>();
+    // 左列: row*1, 右列: 10+row
+    final index = col == 0 ? row : 10 + row;
+
+    String label = '';
+    String value = '--';
+    String unit = '';
+    Color color = ThresholdColors.normal;
+    IconData icon = Icons.sensors;
+
+    // 右列第10行(index=19)为空位
+    if (index == 19) {
+      return Container(
+        decoration: BoxDecoration(
+          color: TechColors.bgMedium.withOpacity(0.3),
+          border: Border.all(color: TechColors.borderDark, width: 1),
+        ),
+      );
+    }
+
+    if (data != null) {
+      double numValue = 0.0;
+      final elec = data.electricityModule;
+      final vib = data.vibrationModule;
+
+      switch (index) {
+        // ===== 左列: PM10 + 温度 + 电表(8) =====
+        case 0: // 粉尘浓度
+          label = '粉尘浓度';
+          numValue = data.pm10Module?.pm10Value ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'ug/m3';
+          color = thresholdProvider.getPM10Color(numValue);
+          icon = Icons.air;
+          break;
+        case 1: // 温度
+          label = '温度';
+          numValue = data.temperatureModule?.temperatureValue ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = '\u00B0C';
+          color = thresholdProvider.getTemperatureColor(numValue);
+          icon = Icons.thermostat;
+          break;
+        case 2: // 功率
+          label = '功率';
+          numValue = elec?.pt ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'kW';
+          color = thresholdProvider.getPowerColor(numValue);
+          icon = Icons.bolt;
+          break;
+        case 3: // 能耗
+          label = '能耗';
+          value = (elec?.impEp ?? 0.0).toStringAsFixed(1);
+          unit = 'kWh';
+          color = ThresholdColors.normal;
+          icon = Icons.electric_meter;
+          break;
+        case 4: // A相电压
+          label = 'A相电压';
+          numValue = elec?.voltage ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'V';
+          color = thresholdProvider.getVoltageAColor(numValue);
+          icon = Icons.bolt;
+          break;
+        case 5: // B相电压
+          label = 'B相电压';
+          numValue = elec?.voltageB ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'V';
+          color = ThresholdColors.normal;
+          icon = Icons.bolt;
+          break;
+        case 6: // C相电压
+          label = 'C相电压';
+          numValue = elec?.voltageC ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'V';
+          color = ThresholdColors.normal;
+          icon = Icons.bolt;
+          break;
+        case 7: // A相电流
+          label = 'A相电流';
+          numValue = elec?.currentA ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'A';
+          color = thresholdProvider.getCurrentAColor(numValue);
+          icon = Icons.electric_bolt;
+          break;
+        case 8: // B相电流
+          label = 'B相电流';
+          numValue = elec?.currentB ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'A';
+          color = thresholdProvider.getCurrentBColor(numValue);
+          icon = Icons.electric_bolt;
+          break;
+        case 9: // C相电流
+          label = 'C相电流';
+          numValue = elec?.currentC ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'A';
+          color = thresholdProvider.getCurrentCColor(numValue);
+          icon = Icons.electric_bolt;
+          break;
+
+        // ===== 右列: 振动(9) =====
+        case 10: // X轴速度
+          label = 'X轴速度';
+          numValue = vib?.vx ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'mm/s';
+          color = ThresholdColors.normal;
+          icon = Icons.vibration;
+          break;
+        case 11: // Y轴速度
+          label = 'Y轴速度';
+          numValue = vib?.vy ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'mm/s';
+          color = ThresholdColors.normal;
+          icon = Icons.vibration;
+          break;
+        case 12: // Z轴速度
+          label = 'Z轴速度';
+          numValue = vib?.vz ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'mm/s';
+          color = ThresholdColors.normal;
+          icon = Icons.vibration;
+          break;
+        case 13: // X轴位移
+          label = 'X轴位移';
+          numValue = vib?.dx ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'um';
+          color = ThresholdColors.normal;
+          icon = Icons.straighten;
+          break;
+        case 14: // Y轴位移
+          label = 'Y轴位移';
+          numValue = vib?.dy ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'um';
+          color = ThresholdColors.normal;
+          icon = Icons.straighten;
+          break;
+        case 15: // Z轴位移
+          label = 'Z轴位移';
+          numValue = vib?.dz ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'um';
+          color = ThresholdColors.normal;
+          icon = Icons.straighten;
+          break;
+        case 16: // X轴频率
+          label = 'X轴频率';
+          numValue = vib?.freqX ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'Hz';
+          color = thresholdProvider.getFreqXColor(numValue);
+          icon = Icons.graphic_eq;
+          break;
+        case 17: // Y轴频率
+          label = 'Y轴频率';
+          numValue = vib?.freqY ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'Hz';
+          color = thresholdProvider.getFreqYColor(numValue);
+          icon = Icons.graphic_eq;
+          break;
+        case 18: // Z轴频率
+          label = 'Z轴频率';
+          numValue = vib?.freqZ ?? 0.0;
+          value = numValue.toStringAsFixed(1);
+          unit = 'Hz';
+          color = thresholdProvider.getFreqZColor(numValue);
+          icon = Icons.graphic_eq;
+          break;
+      }
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: TechColors.bgMedium.withOpacity(0.3),
+        border: Border.all(
+          color: TechColors.borderDark,
+          width: 1,
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 2),
+          Text(
+            '$label:',
+            style: TextStyle(
+              color: color,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
               fontFamily: 'Roboto Mono',
             ),
-            overflow: TextOverflow.ellipsis,
           ),
-        ),
-      ],
-    );
-  }
-
-  LineChartBarData _buildLine(List<FlSpot> data, Color color) {
-    return LineChartBarData(
-      spots: data,
-      isCurved: true,
-      color: color,
-      barWidth: 2,
-      isStrokeCapRound: true,
-      dotData: const FlDotData(show: false),
-      belowBarData: BarAreaData(show: true, color: color.withOpacity(0.08)),
-    );
-  }
-
-  Widget _buildLegendItem(String label, Color color) {
-    return Row(
-      children: [
-        Container(width: 8, height: 8, color: color),
-        const SizedBox(width: 6),
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-      ],
-    );
-  }
-
-  Widget _buildAxisBadge({
-    required String title,
-    required IconData icon,
-    required List<_AxisValue> values,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: TechColors.bgMedium.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: TechColors.borderDark),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 14, color: TechColors.glowCyan),
-          const SizedBox(width: 6),
-          Text(title,
-              style: const TextStyle(color: Colors.white70, fontSize: 12)),
-          const SizedBox(width: 10),
-          ...values.map((v) => Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: RichText(
-                  text: TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '${v.label}: ',
-                        style: TextStyle(
-                          color: v.color.withOpacity(0.9),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      TextSpan(
-                        text: v.value.toStringAsFixed(1),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontFamily: 'Roboto Mono',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )),
+          const SizedBox(width: 2),
+          Text(
+            unit,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 10,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  // ===== 信息卡片构建 =====
-  Widget _buildInfoCard({
+  /// 右侧料仓结构面板
+  Widget _buildRightHopperPanel(HopperData? data) {
+    return Container(
+      margin: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: TechColors.bgDark,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: TechColors.glowCyan.withOpacity(0.5),
+          width: 1,
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // 背景图片（右移 40px）
+          Positioned(
+            left: 40,
+            right: -40,
+            top: 0,
+            bottom: 0,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: ColorFiltered(
+                colorFilter: ColorFilter.mode(
+                  TechColors.glowCyan.withOpacity(0.6),
+                  BlendMode.srcIn,
+                ),
+                child: Image.asset(
+                  'assets/images/hopper.png',
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: TechColors.bgMedium.withOpacity(0.3),
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.image_not_supported,
+                              size: 48,
+                              color: TechColors.textSecondary,
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              '结构图资源未加载',
+                              style: TextStyle(color: TechColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+          // 左上角：粉尘浓度
+          Positioned(
+            left: 8,
+            top: 8,
+            child: _buildPM10TempCard(data),
+          ),
+          // 右上角：9条振动数据
+          Positioned(
+            right: 8,
+            top: 8,
+            child: _buildVibrationCard(data),
+          ),
+          // 左下角：8条电表数据
+          Positioned(
+            left: 8,
+            bottom: 8,
+            child: _buildElectricityCard(data),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 左上角：粉尘浓度 + 温度卡片 (340px 宽)
+  Widget _buildPM10TempCard(HopperData? data) {
+    final thresholdProvider = context.watch<HopperThresholdProvider>();
+
+    final pm10 = data?.pm10Module?.pm10Value ?? 0.0;
+    final temp = data?.temperatureModule?.temperatureValue ?? 0.0;
+
+    return Container(
+      width: 340,
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      decoration: BoxDecoration(
+        color: TechColors.bgDeep.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: TechColors.glowCyan.withOpacity(0.4),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildDataRow(
+            icon: Icons.air,
+            label: '粉尘浓度',
+            value: pm10.toStringAsFixed(1),
+            unit: 'ug/m3',
+            color: thresholdProvider.getPM10Color(pm10),
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.thermostat,
+            label: '温度',
+            value: temp.toStringAsFixed(1),
+            unit: '\u00B0C',
+            color: thresholdProvider.getTemperatureColor(temp),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 右上角：振动数据卡片 (340px 宽，9 条数据，每条 32px)
+  Widget _buildVibrationCard(HopperData? data) {
+    final thresholdProvider = context.watch<HopperThresholdProvider>();
+    final vib = data?.vibrationModule;
+
+    return Container(
+      width: 340,
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      decoration: BoxDecoration(
+        color: TechColors.bgDeep.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: TechColors.glowGreen.withOpacity(0.4),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildDataRow(
+            icon: Icons.vibration,
+            label: 'X轴速度',
+            value: (vib?.vx ?? 0.0).toStringAsFixed(1),
+            unit: 'mm/s',
+            color: ThresholdColors.normal,
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.vibration,
+            label: 'Y轴速度',
+            value: (vib?.vy ?? 0.0).toStringAsFixed(1),
+            unit: 'mm/s',
+            color: ThresholdColors.normal,
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.vibration,
+            label: 'Z轴速度',
+            value: (vib?.vz ?? 0.0).toStringAsFixed(1),
+            unit: 'mm/s',
+            color: ThresholdColors.normal,
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.straighten,
+            label: 'X轴位移',
+            value: (vib?.dx ?? 0.0).toStringAsFixed(1),
+            unit: 'um',
+            color: ThresholdColors.normal,
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.straighten,
+            label: 'Y轴位移',
+            value: (vib?.dy ?? 0.0).toStringAsFixed(1),
+            unit: 'um',
+            color: ThresholdColors.normal,
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.straighten,
+            label: 'Z轴位移',
+            value: (vib?.dz ?? 0.0).toStringAsFixed(1),
+            unit: 'um',
+            color: ThresholdColors.normal,
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.graphic_eq,
+            label: 'X轴频率',
+            value: (vib?.freqX ?? 0.0).toStringAsFixed(1),
+            unit: 'Hz',
+            color: thresholdProvider.getFreqXColor(vib?.freqX ?? 0.0),
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.graphic_eq,
+            label: 'Y轴频率',
+            value: (vib?.freqY ?? 0.0).toStringAsFixed(1),
+            unit: 'Hz',
+            color: thresholdProvider.getFreqYColor(vib?.freqY ?? 0.0),
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.graphic_eq,
+            label: 'Z轴频率',
+            value: (vib?.freqZ ?? 0.0).toStringAsFixed(1),
+            unit: 'Hz',
+            color: thresholdProvider.getFreqZColor(vib?.freqZ ?? 0.0),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 左下角：电表数据卡片 (340px 宽，8 条数据，每条 32px)
+  Widget _buildElectricityCard(HopperData? data) {
+    final thresholdProvider = context.watch<HopperThresholdProvider>();
+    final elec = data?.electricityModule;
+
+    return Container(
+      width: 340,
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      decoration: BoxDecoration(
+        color: TechColors.bgDeep.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: TechColors.glowCyan.withOpacity(0.4),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildDataRow(
+            icon: Icons.bolt,
+            label: '功率',
+            value: (elec?.pt ?? 0.0).toStringAsFixed(1),
+            unit: 'kW',
+            color: thresholdProvider.getPowerColor(elec?.pt ?? 0.0),
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.electric_meter,
+            label: '能耗',
+            value: (elec?.impEp ?? 0.0).toStringAsFixed(1),
+            unit: 'kWh',
+            color: ThresholdColors.normal,
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.bolt,
+            label: 'A相电压',
+            value: (elec?.voltage ?? 0.0).toStringAsFixed(1),
+            unit: 'V',
+            color: thresholdProvider.getVoltageAColor(elec?.voltage ?? 0.0),
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.bolt,
+            label: 'B相电压',
+            value: (elec?.voltageB ?? 0.0).toStringAsFixed(1),
+            unit: 'V',
+            color: ThresholdColors.normal,
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.bolt,
+            label: 'C相电压',
+            value: (elec?.voltageC ?? 0.0).toStringAsFixed(1),
+            unit: 'V',
+            color: ThresholdColors.normal,
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.electric_bolt,
+            label: 'A相电流',
+            value: (elec?.currentA ?? 0.0).toStringAsFixed(1),
+            unit: 'A',
+            color: thresholdProvider.getCurrentAColor(elec?.currentA ?? 0.0),
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.electric_bolt,
+            label: 'B相电流',
+            value: (elec?.currentB ?? 0.0).toStringAsFixed(1),
+            unit: 'A',
+            color: thresholdProvider.getCurrentBColor(elec?.currentB ?? 0.0),
+          ),
+          const SizedBox(height: 2),
+          _buildDataRow(
+            icon: Icons.electric_bolt,
+            label: 'C相电流',
+            value: (elec?.currentC ?? 0.0).toStringAsFixed(1),
+            unit: 'A',
+            color: thresholdProvider.getCurrentCColor(elec?.currentC ?? 0.0),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 构建单行数据（右侧卡片用, 34px 高度）
+  Widget _buildDataRow({
     required IconData icon,
     required String label,
     required String value,
     required String unit,
     required Color color,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: TechColors.bgMedium.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.5), width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.3),
-            blurRadius: 8,
-            spreadRadius: 0,
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  color: TechColors.textSecondary,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                value,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Roboto Mono',
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                unit,
-                style: TextStyle(
-                  color: color.withOpacity(0.7),
-                  fontSize: 10,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildElectricCard(ElectricityMeter? meter) {
-    final pt = meter?.pt ?? 0.0;
-    final impEp = meter?.impEp ?? 0.0;
-    final ia = meter?.currentA ?? 0.0;
-    final ib = meter?.currentB ?? 0.0;
-    final ic = meter?.currentC ?? 0.0;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: TechColors.bgMedium.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: TechColors.glowCyan.withOpacity(0.6),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: TechColors.glowCyan.withOpacity(0.25),
-            blurRadius: 10,
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.bolt, size: 16, color: TechColors.glowCyan),
-              const SizedBox(width: 6),
-              Text(
-                '功率 / 电流',
-                style: TextStyle(
-                  color: TechColors.textSecondary,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Row(
-            children: [
-              _buildMiniStat('Pt', pt, 'kW', TechColors.glowCyan),
-              const SizedBox(width: 8),
-              _buildMiniStat('Ep', impEp, 'kWh', TechColors.glowCyan),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              _buildMiniStat('IA', ia, 'A', TechColors.glowGreen),
-              const SizedBox(width: 8),
-              _buildMiniStat('IB', ib, 'A', TechColors.glowOrange),
-              const SizedBox(width: 8),
-              _buildMiniStat('IC', ic, 'A', TechColors.glowCyanLight),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMiniStat(String label, double value, String unit, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          '$label:',
-          style: TextStyle(color: color, fontSize: 11),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          value.toStringAsFixed(1),
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontFamily: 'Roboto Mono',
-          ),
-        ),
-        const SizedBox(width: 2),
-        Text(
-          unit,
-          style: TextStyle(color: color.withOpacity(0.7), fontSize: 10),
-        ),
-      ],
-    );
-  }
-
-  // Add onPageEnter compatibility if needed, though TopBar error only mentioned HistoryDataPage
-  void onPageEnter() {
-    resumePolling();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final targetHopper = _getTargetHopperData(_hopperData);
-    final targetVibration = targetHopper?.vibration;
-    final targetElectricity = targetHopper?.electricityMeter;
-    final targetTemperature = targetHopper?.temperatureSensor?.temperature ??
-        targetHopper?.temperatureSensor1?.temperature ??
-        targetHopper?.temperatureSensor2?.temperature ??
-        _getAvgTemperature();
-    final pm10Value = targetHopper?.pm10Sensor?.pm10 ?? 0.0;
-
-    return Container(
-      color: const Color(0xFF0d1117),
+    return SizedBox(
+      height: 34,
       child: Row(
         children: [
-          // 左侧：振动曲线图区域 (40%)
-          Expanded(
-            flex: 4,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: const BoxDecoration(
-                border: Border(right: BorderSide(color: Color(0xFF30363d))),
-              ),
-              child: Column(
-                children: [
-                  Expanded(
-                    child: TechPanel(
-                      title: '三轴速度RMS (mm/s)',
-                      accentColor: TechColors.glowCyan,
-                      child: _buildVibrationRmsChart(targetVibration),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 170,
-                    child: TechPanel(
-                      title: '位移幅值 (μm)',
-                      accentColor: TechColors.glowCyan,
-                      child: _buildDisplacementTrapezoid(targetVibration),
-                    ),
-                  ),
-                ],
-              ),
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 4),
+          Text(
+            '$label:',
+            style: TextStyle(
+              color: color,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
             ),
           ),
-
-          // 右侧：料仓结构面板 (60%) - 类似电炉除尘器面板样式
-          Expanded(
-            flex: 6,
-            child: Container(
-              margin: const EdgeInsets.fromLTRB(0, 12, 12, 12),
-              decoration: BoxDecoration(
-                color: TechColors.bgDark,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: TechColors.glowCyan.withOpacity(0.5),
-                  width: 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: TechColors.glowCyan.withOpacity(0.2),
-                    blurRadius: 8,
-                    spreadRadius: 0,
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // 标题栏
-                  Container(
-                    height: 36,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    decoration: BoxDecoration(
-                      color: TechColors.bgMedium.withOpacity(0.5),
-                      border: Border(
-                        bottom: BorderSide(
-                          color: TechColors.glowCyan.withOpacity(0.3),
-                        ),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 3,
-                          height: 14,
-                          decoration: BoxDecoration(
-                            color: TechColors.glowCyan,
-                            borderRadius: BorderRadius.circular(1),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '料仓结构',
-                          style: TextStyle(
-                            color: TechColors.textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 0.5,
-                            shadows: [
-                              Shadow(
-                                color: TechColors.glowCyan.withOpacity(0.3),
-                                blurRadius: 4,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // 主体内容区域 - 使用 Expanded 填充剩余空间
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          // 背景图片
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: ColorFiltered(
-                              colorFilter: ColorFilter.mode(
-                                TechColors.glowCyan.withOpacity(0.6),
-                                BlendMode.srcIn,
-                              ),
-                              child: Image.asset(
-                                'assets/images/hopper.png',
-                                fit: BoxFit.contain,
-                                width: double.infinity,
-                                height: double.infinity,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    color: TechColors.bgMedium.withOpacity(0.3),
-                                    child: const Center(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.image_not_supported,
-                                              size: 48,
-                                              color: TechColors.textSecondary),
-                                          SizedBox(height: 8),
-                                          Text('结构图资源未加载',
-                                              style: TextStyle(
-                                                  color: TechColors
-                                                      .textSecondary)),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                          // 左上角：PM10
-                          Positioned(
-                            left: 8,
-                            top: 8,
-                            child: _buildInfoCard(
-                              icon: Icons.air,
-                              label: 'PM10',
-                              value: pm10Value.toStringAsFixed(1),
-                              unit: 'μg/m³',
-                              color: TechColors.glowCyan,
-                            ),
-                          ),
-                          // 右上角：功率/电流
-                          Positioned(
-                            right: 8,
-                            top: 8,
-                            child: _buildElectricCard(targetElectricity),
-                          ),
-                          // 左下角：温度
-                          Positioned(
-                            left: 8,
-                            bottom: 8,
-                            child: _buildInfoCard(
-                              icon: Icons.thermostat,
-                              label: '温度',
-                              value: targetTemperature.toStringAsFixed(1),
-                              unit: '°C',
-                              color: TechColors.glowOrange,
-                            ),
-                          ),
-                          // 右下角：在线设备数
-                          Positioned(
-                            right: 8,
-                            bottom: 8,
-                            child: _buildInfoCard(
-                              icon: Icons.sensors,
-                              label: '在线设备',
-                              value:
-                                  '${_getOnlineCount()}/${_displayOrderIds.length}',
-                              unit: '台',
-                              color:
-                                  _getOnlineCount() == _displayOrderIds.length
-                                      ? TechColors.statusNormal
-                                      : TechColors.statusWarning,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+          const Spacer(),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'Roboto Mono',
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            unit,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
             ),
           ),
         ],
       ),
     );
   }
-
-  Widget _buildHopperCard(String id, HopperData? data) {
-    final name = _displayNames[id] ?? id;
-    final isOnline = data != null; // 简单判断在线状态
-
-    // 解析具体数值
-    final weight = data?.weighSensor?.weight ?? 0.0;
-    final feedRate = data?.weighSensor?.feedRate ?? 0.0;
-    final temp = data?.temperatureSensor?.temperature ??
-        0.0; // Fixed .value -> .temperature
-
-    // 颜色定义
-    final glowColor =
-        isOnline ? const Color(0xFF00ff88) : const Color(0xFF484f58);
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: TechPanel(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          children: [
-            // 状态指示灯
-            Container(
-              width: 3,
-              height: 32,
-              decoration: BoxDecoration(
-                color: glowColor,
-                borderRadius: BorderRadius.circular(2),
-                boxShadow: isOnline
-                    ? [
-                        BoxShadow(
-                            color: glowColor.withOpacity(0.5),
-                            blurRadius: 6,
-                            spreadRadius: 1)
-                      ]
-                    : [],
-              ),
-            ),
-            const SizedBox(width: 8),
-
-            // 设备名称
-            Expanded(
-              flex: 2,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      )),
-                  Text(isOnline ? 'RUNNING' : 'OFFLINE',
-                      style: TextStyle(
-                        color: glowColor,
-                        fontSize: 9,
-                        letterSpacing: 1,
-                      )),
-                ],
-              ),
-            ),
-
-            // 数据显示 (重量/速度/温度)
-            _buildMiniMetric('重量', '${weight.toStringAsFixed(1)} kg'),
-            _buildMiniMetric('速度', '${feedRate.toStringAsFixed(1)} kg/h'),
-            _buildMiniMetric('温度', '${temp.toStringAsFixed(1)} °C'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMiniMetric(String label, String value) {
-    return Expanded(
-      flex: 3,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(value,
-              style: const TextStyle(
-                color: Color(0xFF00d4ff),
-                fontSize: 11,
-                fontFamily: 'Roboto Mono',
-                fontWeight: FontWeight.w500,
-              )),
-          Text(label,
-              style: const TextStyle(
-                color: Colors.grey,
-                fontSize: 9,
-              )),
-        ],
-      ),
-    );
-  }
-}
-
-class _AxisValue {
-  final String label;
-  final double value;
-  final Color color;
-
-  _AxisValue(this.label, this.value, this.color);
-}
-
-class _TrapezoidPainter extends CustomPainter {
-  final Color borderColor;
-  final Color gridColor;
-  final List<Color> axisColors;
-
-  _TrapezoidPainter({
-    required this.borderColor,
-    required this.axisColors,
-    required this.gridColor,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = borderColor.withOpacity(0.8)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-
-    final padding = 8.0;
-    final left = padding;
-    final right = size.width - padding;
-    final top = padding;
-    final bottom = size.height - padding;
-
-    // 顺时针旋转90度的梯形外框（左侧长、右侧短）
-    final path = Path()
-      ..moveTo(left, top)
-      ..lineTo(left, bottom)
-      ..lineTo(right, bottom - (size.height * 0.25))
-      ..lineTo(right, top + (size.height * 0.25))
-      ..close();
-
-    final fillPaint = Paint()
-      ..color = gridColor.withOpacity(0.08)
-      ..style = PaintingStyle.fill;
-
-    canvas.drawPath(path, fillPaint);
-
-    canvas.drawPath(path, paint);
-
-    // 内部三条横向灯线（对应 X/Y/Z）
-    final y1 = top + (bottom - top) * 0.2;
-    final y2 = top + (bottom - top) * 0.5;
-    final y3 = top + (bottom - top) * 0.8;
-
-    final axisPaints = List<Paint>.generate(3, (i) {
-      final color = i < axisColors.length ? axisColors[i] : borderColor;
-      return Paint()
-        ..color = color.withOpacity(0.85)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2;
-    });
-
-    canvas.drawLine(
-        Offset(left, y1), Offset(right, y1 - size.height * 0.1), axisPaints[0]);
-    canvas.drawLine(Offset(left, y2), Offset(right, y2), axisPaints[1]);
-    canvas.drawLine(
-        Offset(left, y3), Offset(right, y3 + size.height * 0.1), axisPaints[2]);
-
-    // 发光边框叠层
-    final glowPaint = Paint()
-      ..color = borderColor.withOpacity(0.25)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-    canvas.drawPath(path, glowPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

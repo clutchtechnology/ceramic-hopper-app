@@ -51,8 +51,8 @@ class AppLogger {
       await _writeLog('INFO', 'Log file: ${_logFile!.path}');
       await _writeLog('INFO', '========================================');
 
-      // 清理旧日志（保留最近7天）
-      await _cleanOldLogs(logDir, 7);
+      // 清理旧日志（保留最近30天）
+      await _cleanOldLogs(logDir, 30);
 
       // 🔧 启动心跳监控（每60秒记录一次）
       _startHeartbeat();
@@ -129,13 +129,10 @@ class AppLogger {
   Future<void> _writeLog(String level, String message) async {
     if (!_initialized || _logFile == null) return;
 
-    // 🔧 发行版本只记录错误级别：ERROR, FATAL
-    // 排除所有其他日志：INFO, NETWORK, MEMORY, ACTION, LIFECYCLE, WARNING, HEARTBEAT
-    if (!kDebugMode) {
-      const allowedLevels = {'ERROR', 'FATAL'};
-      if (!allowedLevels.contains(level)) {
-        return;
-      }
+    // 只记录 ERROR 和 FATAL 级别的日志
+    const allowedLevels = {'ERROR', 'FATAL'};
+    if (!allowedLevels.contains(level)) {
+      return;
     }
 
     try {
@@ -158,6 +155,11 @@ class AppLogger {
   /// 信息日志
   Future<void> info(String message) async {
     await _writeLog('INFO', message);
+  }
+
+  /// 调试日志
+  Future<void> debug(String message) async {
+    await _writeLog('DEBUG', message);
   }
 
   /// 警告日志

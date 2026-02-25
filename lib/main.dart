@@ -6,7 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'pages/top_bar.dart';
-import 'providers/realtime_config_provider.dart';
+import 'providers/hopper_threshold_provider.dart';
 import 'providers/admin_provider.dart';
 import 'utils/app_logger.dart';
 import 'api/index.dart';
@@ -67,7 +67,7 @@ Future<void> _initializeApp() async {
 
   // 创建并初始化 Provider
   await logger.info('初始化配置提供者...');
-  final realtimeConfigProvider = RealtimeConfigProvider();
+  final realtimeConfigProvider = HopperThresholdProvider();
   await realtimeConfigProvider.loadConfig();
 
   final adminProvider = AdminProvider();
@@ -82,7 +82,7 @@ Future<void> _initializeApp() async {
 }
 
 class MyApp extends StatefulWidget {
-  final RealtimeConfigProvider realtimeConfigProvider;
+  final HopperThresholdProvider realtimeConfigProvider;
   final AdminProvider adminProvider;
 
   const MyApp({
