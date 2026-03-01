@@ -5,6 +5,7 @@ import '../models/hopper_model.dart';
 import '../services/hopper_service.dart';
 import '../services/realtime_data_cache_service.dart';
 import '../utils/app_logger.dart';
+import '../utils/ui_watchdog.dart';
 import '../widgets/data_display/data_tech_line_widgets.dart';
 import '../providers/hopper_threshold_provider.dart';
 
@@ -16,23 +17,41 @@ class RealtimeDashboardPage extends StatefulWidget {
 }
 
 class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin<RealtimeDashboardPage> {
   final HopperService _hopperService = HopperService();
   final RealtimeDataCacheService _cacheService = RealtimeDataCacheService();
 
   Map<String, HopperData> _hopperData = {};
   final bool _isRefreshingState = false;
 
+  // [CRITICAL] WebSocket 节流控制：后端 0.1s 推送，UI 根据看门狗状态动态调整
+  // normal=1s, degraded=3s, critical=5s，防止工控机过载
+  DateTime? _lastWsUiUpdate;
+  Duration get _wsUiThrottle => UIWatchdog().getThrottle(
+        normal: const Duration(seconds: 1),
+        degraded: const Duration(seconds: 3),
+        critical: const Duration(seconds: 5),
+      );
+
+  // [CRITICAL] 磁盘 I/O 节流：缓存保存最多 30s/60s/120s 一次，防止频繁写文件
+  DateTime? _lastWsCacheSave;
+  Duration get _wsCacheThrottle => UIWatchdog().getThrottle(
+        normal: const Duration(seconds: 30),
+        degraded: const Duration(seconds: 60),
+        critical: const Duration(seconds: 120),
+      );
+
+  // [CRITICAL] 缓存 Provider 引用（防止 build() 中频繁查找导致卡死）
+  late HopperThresholdProvider _thresholdProvider;
+
   // Getter for TopBar
   bool get isRefreshing => _isRefreshingState;
-
-  // 保持页面存活, 切换Tab时不销毁
-  @override
-  bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
+    // 缓存 Provider 引用（防止 build() 中频繁查找）
+    _thresholdProvider = context.read<HopperThresholdProvider>();
     _initData();
   }
 
@@ -85,17 +104,38 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
     logger.info('RealtimeDashboardPage: 已订阅 WebSocket 实时数据');
   }
 
-  // 3. 处理 WebSocket 推送的实时数据
+  // 3. 处理 WebSocket 推送的实时数据 - [CRITICAL] 添加节流保护
   void _handleRealtimeData(HopperRealtimeResponse response) {
     if (!mounted) return;
 
-    setState(() {
-      _hopperData = response.data;
-    });
+    // [CRITICAL] 无论节流与否，始终更新内部数据变量（保证数据最新）
+    // 这样即使 setState 被节流，下次触发时用的也是最新一帧数据
+    _hopperData = response.data;
 
-    // 保存到缓存
-    _cacheService.saveCache(hopperData: _hopperData);
-    logger.debug('RealtimeDashboardPage: 收到实时数据，设备数: ${_hopperData.length}');
+    // [CRITICAL] 节流 setState：后端 0.1s 推送，UI 最多 1s 重建一次
+    // 防止 10Hz 全量重建超复杂 Widget 树导致工控机主线程卡死
+    final now = DateTime.now();
+    final lastUiUpdate = _lastWsUiUpdate;
+    if (lastUiUpdate == null || now.difference(lastUiUpdate) >= _wsUiThrottle) {
+      _lastWsUiUpdate = now;
+      setState(() {
+        // 数据已在上方更新，此处 setState 仅触发重建
+      });
+    }
+
+    // [CRITICAL] 节流 saveCache：磁盘 I/O 最多 30s 一次，防止频繁写文件
+    final lastCacheSave = _lastWsCacheSave;
+    if (lastCacheSave == null ||
+        now.difference(lastCacheSave) >= _wsCacheThrottle) {
+      _lastWsCacheSave = now;
+      _cacheService.saveCache(hopperData: _hopperData);
+    }
+
+    // 调试日志（每 10 次推送记录一次，避免日志泛滥）
+    if (_lastWsUiUpdate != null &&
+        now.difference(_lastWsUiUpdate!).inSeconds % 10 == 0) {
+      logger.debug('RealtimeDashboardPage: 收到实时数据，设备数: ${_hopperData.length}');
+    }
   }
 
   // 获取第一个料仓数据
@@ -105,8 +145,11 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
-    super.build(context); // AutomaticKeepAliveClientMixin 要求
+    super.build(context);
     final hopperData = _getFirstHopperData();
 
     return Container(
@@ -166,7 +209,8 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
 
   /// 构建单个数据单元格 (10行x2列, 左列索引 0-9, 右列索引 10-19)
   Widget _buildDataCell(int row, int col, HopperData? data) {
-    final thresholdProvider = context.watch<HopperThresholdProvider>();
+    // [CRITICAL] 使用缓存的 Provider 引用，避免 build() 中频繁查找
+    final thresholdProvider = _thresholdProvider;
     // 左列: row*1, 右列: 10+row
     final index = col == 0 ? row : 10 + row;
 
@@ -475,7 +519,8 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
 
   /// 左上角：粉尘浓度 + 温度卡片 (340px 宽)
   Widget _buildPM10TempCard(HopperData? data) {
-    final thresholdProvider = context.watch<HopperThresholdProvider>();
+    // [CRITICAL] 使用缓存的 Provider 引用
+    final thresholdProvider = _thresholdProvider;
 
     final pm10 = data?.pm10Module?.pm10Value ?? 0.0;
     final temp = data?.temperatureModule?.temperatureValue ?? 0.0;
@@ -516,7 +561,8 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
 
   /// 右上角：振动数据卡片 (340px 宽，9 条数据，每条 32px)
   Widget _buildVibrationCard(HopperData? data) {
-    final thresholdProvider = context.watch<HopperThresholdProvider>();
+    // [CRITICAL] 使用缓存的 Provider 引用
+    final thresholdProvider = _thresholdProvider;
     final vib = data?.vibrationModule;
 
     return Container(
@@ -611,7 +657,8 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
 
   /// 左下角：电表数据卡片 (340px 宽，8 条数据，每条 32px)
   Widget _buildElectricityCard(HopperData? data) {
-    final thresholdProvider = context.watch<HopperThresholdProvider>();
+    // [CRITICAL] 使用缓存的 Provider 引用
+    final thresholdProvider = _thresholdProvider;
     final elec = data?.electricityModule;
 
     return Container(

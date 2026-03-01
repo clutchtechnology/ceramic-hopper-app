@@ -1,19 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import '../widgets/data_display/data_tech_line_widgets.dart';
 import '../widgets/top_bar/dt_health_status.dart';
-import '../providers/admin_provider.dart';
 import 'realtime_dashboard_page.dart';
 import 'hopper_history_page.dart';
+import 'alarm_records_page.dart';
 import 'settings_page.dart';
 
 /// 主页面 - 带Tab导航
 /// Tab1: 实时数据
 /// Tab2: 历史曲线
-/// Tab3: 系统设置
+/// Tab3: 报警记录
+/// Tab4: 系统设置
 class DigitalTwinPage extends StatefulWidget {
   const DigitalTwinPage({super.key});
 
@@ -32,12 +32,15 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
   // 3, 实时数据页面 Key
   final GlobalKey<RealtimeDashboardPageState> _realtimePageKey = GlobalKey();
 
+  // 4, 报警记录页面 Key
+  final GlobalKey<AlarmRecordsPageState> _alarmRecordsPageKey = GlobalKey();
+
   // 4, 跟踪当前 Tab 索引
   int _currentTabIndex = 0;
 
   // 5, 时钟定时器
   Timer? _clockTimer;
-  String _clockTime = '';
+  final ValueNotifier<String> _clockTimeNotifier = ValueNotifier('--:--:--');
 
   // 6, 窗口最大化状态
   bool _isMaximized = true; // 默认启动时是最大化的
@@ -45,8 +48,8 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
   @override
   void initState() {
     super.initState();
-    // 1, 初始化 Tab 控制器（3个Tab：实时数据、历史曲线、系统设置）
-    _tabController = TabController(length: 3, vsync: this);
+    // 1, 初始化 Tab 控制器（4个Tab：实时数据、历史曲线、报警记录、系统设置）
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(_onTabChanged);
 
     // 5, 启动时钟定时器
@@ -64,6 +67,20 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
     if (newIndex == 1) {
       _hopperHistoryPageKey.currentState?.refreshData();
     }
+
+    // 进入报警记录页面时刷新
+    if (newIndex == 2) {
+      _alarmRecordsPageKey.currentState?.refreshData();
+    }
+  }
+
+  /// 切换 Tab 页面
+  void _switchTab(int index) {
+    if (!mounted || _currentTabIndex == index) return;
+    setState(() {
+      _currentTabIndex = index;
+      _tabController.animateTo(index);
+    });
   }
 
   /// 5, 启动时钟定时器 (替代 StreamBuilder 避免无法取消的 Stream)
@@ -77,14 +94,11 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
 
   /// 5, 更新时钟显示
   void _updateClockTime() {
-    if (!mounted) return;
     final now = DateTime.now();
     final timeStr =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
-    if (_clockTime != timeStr) {
-      setState(() {
-        _clockTime = timeStr;
-      });
+    if (_clockTimeNotifier.value != timeStr) {
+      _clockTimeNotifier.value = timeStr;
     }
   }
 
@@ -99,6 +113,7 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
     // 5, 取消时钟定时器
     _clockTimer?.cancel();
     _clockTimer = null;
+    _clockTimeNotifier.dispose();
 
     super.dispose();
   }
@@ -124,7 +139,9 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
                   RealtimeDashboardPage(key: _realtimePageKey),
                   // Tab2: 历史曲线
                   HopperHistoryPage(key: _hopperHistoryPageKey),
-                  // Tab3: 系统设置
+                  // Tab3: 报警记录
+                  AlarmRecordsPage(key: _alarmRecordsPageKey),
+                  // Tab4: 系统设置
                   const SettingsPage(),
                 ],
               ),
@@ -146,8 +163,7 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
         decoration: BoxDecoration(
           color: TechColors.bgDark.withOpacity(0.95),
           border: Border(
-            bottom:
-                BorderSide(color: TechColors.glowCyan.withOpacity(0.3)),
+            bottom: BorderSide(color: TechColors.glowCyan.withOpacity(0.3)),
           ),
         ),
         child: Row(
@@ -213,6 +229,8 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
         _buildTabButton(0, '实时数据'),
         const SizedBox(width: 4),
         _buildTabButton(1, '历史曲线'),
+        const SizedBox(width: 4),
+        _buildTabButton(2, '报警记录'),
       ],
     );
   }
@@ -223,14 +241,7 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
     final color = isSelected ? TechColors.glowCyan : TechColors.textSecondary;
 
     return GestureDetector(
-      onTap: () {
-        if (mounted) {
-          setState(() {
-            _currentTabIndex = index;
-            _tabController.animateTo(index);
-          });
-        }
-      },
+      onTap: () => _switchTab(index),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -259,17 +270,10 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
 
   /// 设置按钮
   Widget _buildSettingsButton() {
-    final isSelected = _currentTabIndex == 2;
+    final isSelected = _currentTabIndex == 3;
     return GestureDetector(
       // 直接跳转到设置页面，不需要密码验证
-      onTap: () {
-        if (mounted) {
-          setState(() {
-            _currentTabIndex = 2;
-            _tabController.animateTo(2);
-          });
-        }
-      },
+      onTap: () => _switchTab(3),
       // 如果需要密码验证，取消上面的注释，使用下面的代码
       // onTap: () => _showPasswordDialog(),
       behavior: HitTestBehavior.opaque,
@@ -283,9 +287,7 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
         ),
         child: Icon(
           Icons.settings,
-          color: isSelected
-              ? TechColors.glowCyan
-              : TechColors.textSecondary,
+          color: isSelected ? TechColors.glowCyan : TechColors.textSecondary,
           size: 18,
         ),
       ),
@@ -301,14 +303,19 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
         borderRadius: BorderRadius.circular(4),
         border: Border.all(color: TechColors.glowCyan.withOpacity(0.3)),
       ),
-      child: Text(
-        _clockTime.isEmpty ? '--:--:--' : _clockTime,
-        style: const TextStyle(
-          color: TechColors.glowCyan,
-          fontSize: 13,
-          fontFamily: 'monospace',
-          fontWeight: FontWeight.w500,
-        ),
+      child: ValueListenableBuilder<String>(
+        valueListenable: _clockTimeNotifier,
+        builder: (context, clockValue, child) {
+          return Text(
+            clockValue,
+            style: const TextStyle(
+              color: TechColors.glowCyan,
+              fontSize: 13,
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.w500,
+            ),
+          );
+        },
       ),
     );
   }
@@ -351,18 +358,16 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
     required VoidCallback onTap,
     required Color hoverColor,
   }) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 32,
-          height: 28,
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(4)),
-          child: _HoverBuilder(
-            hoverColor: hoverColor,
-            child: Icon(icon, size: 16, color: TechColors.textSecondary),
-          ),
+    // [修复] 移除外层 MouseRegion, 避免嵌套导致 MouseTracker 重入断言错误
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 32,
+        height: 28,
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(4)),
+        child: _HoverBuilder(
+          hoverColor: hoverColor,
+          child: Icon(icon, size: 16, color: TechColors.textSecondary),
         ),
       ),
     );
@@ -616,8 +621,13 @@ class _HoverBuilderState extends State<_HoverBuilder> {
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) {
+        if (!_isHovered) setState(() => _isHovered = true);
+      },
+      onExit: (_) {
+        if (_isHovered) setState(() => _isHovered = false);
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         decoration: BoxDecoration(

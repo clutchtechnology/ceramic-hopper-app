@@ -46,6 +46,11 @@ class Api {
   static const String configPlcTest = '/api/config/plc/test';
   static const String configDatabase = '/api/config/database';
 
+  // 报警管理
+  static const String alarmThresholds = '/api/alarms/thresholds';
+  static const String alarmRecords = '/api/alarms/records';
+  static const String alarmCount = '/api/alarms/count';
+
   // 传感器状态位 (后端解析)
   static const String statusAll = '/api/status'; // 按DB分组
   static const String statusFlat = '/api/status/flat'; // 扁平列表

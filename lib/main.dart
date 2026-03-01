@@ -9,6 +9,8 @@ import 'pages/top_bar.dart';
 import 'providers/hopper_threshold_provider.dart';
 import 'providers/admin_provider.dart';
 import 'utils/app_logger.dart';
+import 'utils/timer_manager.dart';
+import 'utils/ui_watchdog.dart';
 import 'api/index.dart';
 
 void main() async {
@@ -22,9 +24,14 @@ void main() async {
 
     // 捕获 Flutter 框架错误
     FlutterError.onError = (FlutterErrorDetails details) {
-      // 异步记录但不等待（fire-and-forget）
+      // [过滤] MouseTracker 调试断言 (Flutter 已知 debug-only 问题, 不影响功能)
+      final errorStr = details.exception.toString();
+      if (kDebugMode && errorStr.contains('_debugDuringDeviceUpdate')) {
+        return;
+      }
+      // 异步记录但不等待 (fire-and-forget)
       logger.fatal('Flutter框架错误', details.exception, details.stack);
-      // 在 Release 模式下也显示错误（避免静默崩溃）
+      // 在 Release 模式下也显示错误 (避免静默崩溃)
       FlutterError.presentError(details);
     };
 
@@ -72,6 +79,9 @@ Future<void> _initializeApp() async {
 
   final adminProvider = AdminProvider();
   await adminProvider.initialize();
+
+  // [CRITICAL] 启动 UI 看门狗（心跳检测 + 帧率监控 + 自动降级）
+  UIWatchdog().start();
 
   await logger.info('应用程序初始化完成');
 
@@ -125,11 +135,14 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     logger.lifecycle('开始清理资源...');
 
-    // 1. 关闭 HTTP Client
-    ApiClient.dispose();
+    // 0. [CRITICAL] 停止 UI 看门狗
+    UIWatchdog().stop();
 
-    // 2. 清理 Provider 资源（如果有）
-    // widget.realtimeConfigProvider.dispose(); // 如果 Provider 有 dispose
+    // 1. [CRITICAL] 关闭所有 Timer
+    TimerManager().shutdown();
+
+    // 2. 关闭 HTTP Client
+    ApiClient.dispose();
 
     // 3. 关闭日志系统（最后执行）
     logger.lifecycle('资源清理完成');
@@ -152,7 +165,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         logger.lifecycle('应用进入后台 (paused)');
         break;
       case AppLifecycleState.detached:
-        // 🔧 [CRITICAL] Windows 关闭时 dispose 可能不执行，这里是最后机会
+        // [CRITICAL] Windows 关闭时 dispose 可能不执行，这里是最后机会
         logger.lifecycle('应用即将退出 (detached)');
         _cleanupResources();
         break;

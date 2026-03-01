@@ -29,6 +29,10 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
   Timer? _debounceTimer;
   static const Duration _debounceDuration = Duration(milliseconds: 500);
 
+  // [CRITICAL] 页面进入防抖：防止频繁切换 Tab 导致重复加载
+  static const Duration _refreshDebounceInterval = Duration(seconds: 10);
+  DateTime? _lastRefreshTime;
+
   // 设备ID (只有一个设备)
   static const String _deviceId = 'hopper_unit_4';
 
@@ -126,18 +130,35 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
 
   /// 外部调用刷新方法 (进入页面时调用)
   void refreshData() {
+    // [CRITICAL] 防抖：10秒内不重复刷新，防止频繁切换 Tab 导致重复加载
+    final now = DateTime.now();
+    final lastRefresh = _lastRefreshTime;
+    if (lastRefresh != null &&
+        now.difference(lastRefresh) < _refreshDebounceInterval) {
+      debugPrint('HopperHistoryPage: 刷新防抖，跳过本次刷新');
+      return;
+    }
+    _lastRefreshTime = now;
     _refreshAllCharts();
   }
 
   /// 刷新所有图表数据
   Future<void> _refreshAllCharts() async {
+    // [CRITICAL] 并发加载所有图表，但限制并发数为 3，防止同时发起 9 个 HTTP 请求导致卡死
+    // 分 3 批加载：每批 3 个图表
     await Future.wait([
       _refreshPM10Data(),
       _refreshTempData(),
       _refreshCurrentData(),
+    ]);
+
+    await Future.wait([
       _refreshVoltageData(),
       _refreshPowerData(),
       _refreshEnergyData(),
+    ]);
+
+    await Future.wait([
       _refreshVelocityData(),
       _refreshDisplacementData(),
       _refreshFrequencyData(),

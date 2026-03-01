@@ -77,7 +77,7 @@ class PlcConfigData {
   int rack;
   int slot;
   int timeoutMs;
-  int pollInterval;
+  double pollInterval;
 
   PlcConfigData({
     required this.ipAddress,
@@ -88,12 +88,16 @@ class PlcConfigData {
   });
 
   factory PlcConfigData.fromJson(Map<String, dynamic> json) {
+    final pollIntervalValue = json['poll_interval'];
+
     return PlcConfigData(
       ipAddress: json['ip_address'] as String? ?? '192.168.50.235',
       rack: json['rack'] as int? ?? 0,
       slot: json['slot'] as int? ?? 1,
       timeoutMs: json['timeout_ms'] as int? ?? 5000,
-      pollInterval: json['poll_interval'] as int? ?? 5,
+      pollInterval: pollIntervalValue is num
+          ? pollIntervalValue.toDouble()
+          : double.tryParse('${pollIntervalValue ?? ''}') ?? 0.5,
     );
   }
 
@@ -105,18 +109,12 @@ class PlcConfigData {
         'poll_interval': pollInterval,
       };
 
-  /// 用于PUT请求的JSON（只包含可修改字段）
-  Map<String, dynamic> toUpdateJson() => {
-        'ip_address': ipAddress,
-        'poll_interval': pollInterval,
-      };
-
   PlcConfigData copyWith({
     String? ipAddress,
     int? rack,
     int? slot,
     int? timeoutMs,
-    int? pollInterval,
+    double? pollInterval,
   }) {
     return PlcConfigData(
       ipAddress: ipAddress ?? this.ipAddress,
@@ -134,7 +132,7 @@ class PlcConfigData {
 /// 业务流程:
 /// 1. 初始化时先从本地 SharedPreferences 加载缓存配置
 /// 2. 然后从后端 API 刷新最新配置
-/// 3. 更新配置时: 先推送到后端 -> 成功后保存本地
+/// 3. 配置由后端 .env 管理，前端仅做读取与展示
 class BackendConfigProvider extends ChangeNotifier {
   // 1, SharedPreferences 存储键 - 服务器配置
   static const String _serverConfigKey = 'backend_server_config';
@@ -277,43 +275,6 @@ class BackendConfigProvider extends ChangeNotifier {
     }
   }
 
-  /// 更新PLC配置
-  Future<bool> updatePlcConfig(PlcConfigData newConfig) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-
-    final client = ApiClient();
-
-    try {
-      final data = await client.put(
-        Api.configPlc,
-        body: newConfig.toUpdateJson(),
-      );
-
-      if (data['success'] == true) {
-        // 更新本地配置
-        _plcConfig = newConfig;
-        await _saveToLocal();
-
-        // 从后端刷新确认
-        await refreshFromBackend();
-        return true;
-      } else {
-        _error = data['error'] ?? '更新失败';
-      }
-
-      _isLoading = false;
-      notifyListeners();
-      return false;
-    } catch (e) {
-      _error = '网络错误: $e';
-      _isLoading = false;
-      notifyListeners();
-      return false;
-    }
-  }
-
   /// 测试PLC连接
   Future<Map<String, dynamic>> testPlcConnection() async {
     final client = ApiClient();
@@ -352,7 +313,7 @@ class BackendConfigProvider extends ChangeNotifier {
       rack: 0,
       slot: 1,
       timeoutMs: 5000,
-      pollInterval: 5,
+      pollInterval: 0.5,
     );
     notifyListeners();
   }

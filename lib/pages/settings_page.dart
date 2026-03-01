@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import '../widgets/data_display/data_tech_line_widgets.dart';
@@ -25,11 +24,6 @@ class _SettingsPageState extends State<SettingsPage> {
   // 2, 后端配置 Provider (管理服务器/PLC配置)
   final BackendConfigProvider _configProvider = BackendConfigProvider();
 
-  // 3, PLC IP地址输入控制器
-  final _plcIpController = TextEditingController();
-  // 4, PLC轮询间隔输入控制器
-  final _plcPollIntervalController = TextEditingController();
-
   // 5, 密码修改输入控制器 (提升到类级别，避免每次build重建)
   final _oldPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
@@ -52,24 +46,11 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _initializeConfig() async {
     await _configProvider.initialize();
-    _updatePlcControllers();
     if (mounted) setState(() {});
-  }
-
-  void _updatePlcControllers() {
-    if (_configProvider.plcConfig != null) {
-      _plcIpController.text = _configProvider.plcConfig!.ipAddress;
-      _plcPollIntervalController.text =
-          _configProvider.plcConfig!.pollInterval.toString();
-    }
   }
 
   @override
   void dispose() {
-    // 3, 释放PLC IP控制器
-    _plcIpController.dispose();
-    // 4, 释放PLC轮询间隔控制器
-    _plcPollIntervalController.dispose();
     // 5, 释放密码输入控制器
     _oldPasswordController.dispose();
     _newPasswordController.dispose();
@@ -84,15 +65,18 @@ class _SettingsPageState extends State<SettingsPage> {
       child: AnimatedGridBackground(
         gridColor: TechColors.borderDark.withOpacity(0.3),
         gridSize: 40,
-        child: Row(
-          children: [
-            // 左侧导航菜单
-            _buildNavigationMenu(),
-            // 右侧配置内容
-            Expanded(
-              child: _buildConfigContent(),
-            ),
-          ],
+        child: SizedBox.expand(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 左侧导航菜单
+              _buildNavigationMenu(),
+              // 右侧配置内容
+              Expanded(
+                child: _buildConfigContent(),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -113,7 +97,9 @@ class _SettingsPageState extends State<SettingsPage> {
       child: TechPanel(
         title: '配置菜单',
         accentColor: TechColors.glowCyan,
+        height: double.infinity,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // 菜单项列表
             ...List.generate(sections.length, (index) {
@@ -183,7 +169,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               );
             }),
-            // 弹性空间
             const Spacer(),
             // 分隔线
             Container(
@@ -290,6 +275,7 @@ class _SettingsPageState extends State<SettingsPage> {
         child: TechPanel(
           title: '实时数据阈值与颜色配置',
           accentColor: TechColors.glowOrange,
+          height: double.infinity,
           child: const RealtimeDataSettingsWidget(),
         ),
       );
@@ -300,6 +286,7 @@ class _SettingsPageState extends State<SettingsPage> {
       child: TechPanel(
         title: _getSectionTitle(),
         accentColor: TechColors.glowCyan,
+        height: double.infinity,
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -318,7 +305,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case 0:
         return '服务配置 (只读)';
       case 1:
-        return 'PLC 配置';
+        return 'PLC 配置 (只读)';
       case 2:
         return '实时数据阈值与颜色配置';
       case 3:
@@ -370,11 +357,24 @@ class _SettingsPageState extends State<SettingsPage> {
           title: '后端服务信息',
           icon: Icons.dns,
           children: [
-            _buildInfoRow('主机地址', serverConfig.host, Icons.computer),
             _buildInfoRow(
-                '端口号', serverConfig.port.toString(), Icons.settings_ethernet),
+              '主机地址',
+              serverConfig.host,
+              Icons.computer,
+              envKey: 'SERVER_HOST',
+            ),
             _buildInfoRow(
-                '调试模式', serverConfig.debug ? '开启' : '关闭', Icons.bug_report),
+              '端口号',
+              serverConfig.port.toString(),
+              Icons.settings_ethernet,
+              envKey: 'SERVER_PORT',
+            ),
+            _buildInfoRow(
+              '调试模式',
+              serverConfig.debug ? '开启' : '关闭',
+              Icons.bug_report,
+              envKey: 'DEBUG',
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -397,7 +397,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   // ============================================================================
-  // PLC 配置
+  // PLC 配置 (只读)
   // ============================================================================
 
   Widget _buildPLCConfig() {
@@ -421,40 +421,46 @@ class _SettingsPageState extends State<SettingsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 只读信息
         _buildInfoCard(
           title: 'PLC 连接信息 (只读)',
           icon: Icons.info_outline,
           children: [
-            _buildInfoRow('Rack', plcConfig.rack.toString(), Icons.view_module),
-            _buildInfoRow('Slot', plcConfig.slot.toString(), Icons.memory),
-            _buildInfoRow('超时时间', '${plcConfig.timeoutMs} ms', Icons.timer),
-            _buildInfoRow('轮询间隔', '${plcConfig.pollInterval} 秒', Icons.update),
+            _buildInfoRow(
+              'PLC 地址',
+              plcConfig.ipAddress,
+              Icons.router,
+              envKey: 'PLC_IP',
+            ),
+            _buildInfoRow(
+              'Rack',
+              plcConfig.rack.toString(),
+              Icons.view_module,
+              envKey: 'PLC_RACK',
+            ),
+            _buildInfoRow(
+              'Slot',
+              plcConfig.slot.toString(),
+              Icons.memory,
+              envKey: 'PLC_SLOT',
+            ),
+            _buildInfoRow(
+              '超时时间',
+              '${plcConfig.timeoutMs} ms',
+              Icons.timer,
+              envKey: 'PLC_TIMEOUT',
+            ),
+            _buildInfoRow(
+              '轮询间隔',
+              '${_formatSeconds(plcConfig.pollInterval)} 秒',
+              Icons.update,
+              envKey: 'PLC_POLL_INTERVAL',
+            ),
           ],
         ),
         const SizedBox(height: 24),
-
-        // 可编辑字段
-        const Text(
-          '可编辑配置',
-          style: TextStyle(
-            color: TechColors.textPrimary,
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        _buildConfigField(
-          label: 'PLC IP 地址',
-          controller: _plcIpController,
-          icon: Icons.router,
-          hint: '例: 192.168.50.223',
-        ),
-        const SizedBox(height: 24),
-
-        // 操作按钮
-        _buildPlcActionButtons(),
+        _buildReadonlyNotice(),
+        const SizedBox(height: 16),
+        _buildPlcReadonlyActionButtons(),
 
         // 连接测试结果
         if (_connectionTestResult != null) ...[
@@ -465,21 +471,20 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildPlcActionButtons() {
+  Widget _buildPlcReadonlyActionButtons() {
     return Row(
       children: [
-        ElevatedButton.icon(
-          onPressed: _savePlcConfig,
-          icon: const Icon(Icons.save, size: 18),
-          label: const Text('保存配置'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: TechColors.glowCyan.withOpacity(0.2),
+        OutlinedButton.icon(
+          onPressed: () async {
+            await _configProvider.refreshFromBackend();
+            if (mounted) setState(() {});
+          },
+          icon: const Icon(Icons.refresh, size: 18),
+          label: const Text('刷新配置'),
+          style: OutlinedButton.styleFrom(
             foregroundColor: TechColors.glowCyan,
+            side: BorderSide(color: TechColors.glowCyan.withOpacity(0.5)),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(4),
-              side: BorderSide(color: TechColors.glowCyan.withOpacity(0.5)),
-            ),
           ),
         ),
         const SizedBox(width: 12),
@@ -551,7 +556,12 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildInfoRow(String label, String value, IconData icon) {
+  Widget _buildInfoRow(
+    String label,
+    String value,
+    IconData icon, {
+    String? envKey,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -573,6 +583,58 @@ class _SettingsPageState extends State<SettingsPage> {
               fontSize: 13,
               fontFamily: 'Roboto Mono',
               fontWeight: FontWeight.w500,
+            ),
+          ),
+          const Spacer(),
+          if (envKey != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: TechColors.bgDeep,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: TechColors.borderDark),
+              ),
+              child: Text(
+                envKey,
+                style: const TextStyle(
+                  color: TechColors.textSecondary,
+                  fontSize: 11,
+                  fontFamily: 'Roboto Mono',
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _formatSeconds(double seconds) {
+    final integer = seconds.toInt();
+    if (seconds == integer.toDouble()) {
+      return integer.toString();
+    }
+    return seconds.toString();
+  }
+
+  Widget _buildReadonlyNotice() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: TechColors.bgMedium.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: TechColors.borderDark),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.lock_outline, color: TechColors.textSecondary, size: 18),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '当前页面为只读显示，配置值来自后端加载的 .env 变量。',
+              style: TextStyle(
+                color: TechColors.textSecondary,
+                fontSize: 12,
+              ),
             ),
           ),
         ],
@@ -614,76 +676,6 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildConfigField({
-    required String label,
-    required TextEditingController controller,
-    required IconData icon,
-    required String hint,
-    bool isNumber = false,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, size: 16, color: TechColors.glowCyan),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                color: TechColors.textPrimary,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          keyboardType: isNumber ? TextInputType.number : TextInputType.text,
-          inputFormatters:
-              isNumber ? [FilteringTextInputFormatter.digitsOnly] : null,
-          style: const TextStyle(
-            color: TechColors.textPrimary,
-            fontSize: 13,
-            fontFamily: 'Roboto Mono',
-          ),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(
-              color: TechColors.textMuted,
-              fontSize: 12,
-            ),
-            filled: true,
-            fillColor: TechColors.bgMedium,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: BorderSide(
-                color: TechColors.glowCyan.withOpacity(0.3),
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: BorderSide(
-                color: TechColors.glowCyan.withOpacity(0.3),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: const BorderSide(
-                color: TechColors.glowCyan,
-                width: 1.5,
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 
@@ -947,46 +939,6 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   // 操作方法
-
-  Future<void> _savePlcConfig() async {
-    final newConfig = PlcConfigData(
-      ipAddress: _plcIpController.text,
-      rack: _configProvider.plcConfig?.rack ?? 0,
-      slot: _configProvider.plcConfig?.slot ?? 1,
-      timeoutMs: _configProvider.plcConfig?.timeoutMs ?? 5000,
-      pollInterval: int.tryParse(_plcPollIntervalController.text) ?? 5,
-    );
-
-    final success = await _configProvider.updatePlcConfig(newConfig);
-
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              success ? Icons.check_circle : Icons.error,
-              color: success ? TechColors.glowGreen : TechColors.statusAlarm,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Text(
-              success ? 'PLC配置保存成功！' : '配置保存失败: ${_configProvider.error}',
-              style: const TextStyle(color: TechColors.textPrimary),
-            ),
-          ],
-        ),
-        backgroundColor: TechColors.bgMedium,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-
-    if (success) {
-      _updatePlcControllers();
-      setState(() {});
-    }
-  }
 
   Future<void> _testPlcConnection() async {
     setState(() {

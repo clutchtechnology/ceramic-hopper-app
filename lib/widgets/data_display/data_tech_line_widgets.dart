@@ -1067,6 +1067,7 @@ class _AnimatedGridBackgroundState extends State<AnimatedGridBackground>
   @override
   Widget build(BuildContext context) {
     return Stack(
+      fit: StackFit.expand,
       children: [
         // 网格背景
         Positioned.fill(

@@ -164,7 +164,7 @@ class HistoryDataService {
       deviceId: deviceId,
       start: start,
       end: end,
-      moduleType: 'TemperatureSensor',
+      moduleType: 'temperature',
       fields: ['temperature'],
     );
   }
@@ -188,7 +188,7 @@ class HistoryDataService {
       deviceId: deviceId,
       start: start,
       end: end,
-      moduleType: 'ElectricityMeter',
+      moduleType: 'electricity',
       fields: ['ImpEp', 'Pt'],
     );
   }
@@ -200,8 +200,8 @@ class HistoryDataService {
       deviceId: deviceId,
       start: start,
       end: end,
-      moduleType: 'PM10Sensor',
-      fields: ['pm10_value'],
+      moduleType: 'pm10',
+      fields: ['pm10'],
     );
   }
 
@@ -212,7 +212,7 @@ class HistoryDataService {
       deviceId: deviceId,
       start: start,
       end: end,
-      moduleType: 'ElectricityMeter',
+      moduleType: 'electricity',
       fields: ['Pt'],
     );
   }
@@ -229,7 +229,7 @@ class HistoryDataService {
       deviceId: deviceId,
       start: start,
       end: end,
-      moduleType: 'ElectricityMeter',
+      moduleType: 'electricity',
       fields: ['I_0', 'I_1', 'I_2'],
     );
     final points = result.data ?? [];
@@ -244,7 +244,7 @@ class HistoryDataService {
       deviceId: deviceId,
       start: start,
       end: end,
-      moduleType: 'ElectricityMeter',
+      moduleType: 'electricity',
       fields: ['Ua_0', 'Ua_1', 'Ua_2'],
     );
     final points = result.data ?? [];
@@ -410,7 +410,7 @@ class HistoryDataPoint {
   double get impEp => _getDouble('ImpEp') ?? 0;
 
   // PM10
-  double get pm10Value => _getDouble('pm10_value') ?? 0;
+  double get pm10Value => _getDouble('pm10') ?? 0;
 
   // 三相电流 (A/B/C)
   double get currentA => _getDouble('I_0') ?? 0;

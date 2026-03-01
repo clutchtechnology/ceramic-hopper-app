@@ -1,9 +1,9 @@
-/// 料仓阈值配置状态管理 Provider
-///
-/// 功能职责:
-/// - 本地持久化存储阈值配置 (SharedPreferences)
-/// - 提供阈值颜色判断接口 (正常/警告/报警)
-/// - 支持实时更新和重置默认值
+// 料仓阈值配置状态管理 Provider
+//
+// 功能职责:
+// - 本地持久化存储阈值配置 (SharedPreferences)
+// - 提供阈值颜色判断接口 (正常/警告/报警)
+// - 支持实时更新和重置默认值
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -81,6 +81,7 @@ class ThresholdConfig {
 /// - 三相电流阈值 (A/B/C)
 /// - 功率阈值
 /// - XYZ 速度阈值
+/// - XYZ 位移阈值
 /// - XYZ 频率阈值
 class HopperThresholdProvider extends ChangeNotifier {
   static const String _storageKey = 'hopper_threshold_config_v1';
@@ -191,6 +192,30 @@ class HopperThresholdProvider extends ChangeNotifier {
   );
 
   // ============================================================
+  // XYZ 位移阈值
+  // ============================================================
+  ThresholdConfig displacementXConfig = ThresholdConfig(
+    key: 'displacement_x',
+    displayName: 'X轴位移',
+    normalMax: 300.0,
+    warningMax: 500.0,
+  );
+
+  ThresholdConfig displacementYConfig = ThresholdConfig(
+    key: 'displacement_y',
+    displayName: 'Y轴位移',
+    normalMax: 300.0,
+    warningMax: 500.0,
+  );
+
+  ThresholdConfig displacementZConfig = ThresholdConfig(
+    key: 'displacement_z',
+    displayName: 'Z轴位移',
+    normalMax: 300.0,
+    warningMax: 500.0,
+  );
+
+  // ============================================================
   // XYZ 频率阈值
   // ============================================================
   ThresholdConfig freqXConfig = ThresholdConfig(
@@ -237,90 +262,146 @@ class HopperThresholdProvider extends ChangeNotifier {
     // 加载 PM10 配置
     if (json['pm10'] != null) {
       final data = json['pm10'] as Map<String, dynamic>;
-      pm10Config.normalMax = (data['normalMax'] as num?)?.toDouble() ?? pm10Config.normalMax;
-      pm10Config.warningMax = (data['warningMax'] as num?)?.toDouble() ?? pm10Config.warningMax;
+      pm10Config.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? pm10Config.normalMax;
+      pm10Config.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? pm10Config.warningMax;
     }
 
     // 加载温度配置
     if (json['temperature'] != null) {
       final data = json['temperature'] as Map<String, dynamic>;
-      temperatureConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? temperatureConfig.normalMax;
-      temperatureConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? temperatureConfig.warningMax;
+      temperatureConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ??
+          temperatureConfig.normalMax;
+      temperatureConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ??
+          temperatureConfig.warningMax;
     }
 
     // 加载三相电压配置
     if (json['voltage_a'] != null) {
       final data = json['voltage_a'] as Map<String, dynamic>;
-      voltageAConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? voltageAConfig.normalMax;
-      voltageAConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? voltageAConfig.warningMax;
+      voltageAConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? voltageAConfig.normalMax;
+      voltageAConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? voltageAConfig.warningMax;
     }
     if (json['voltage_b'] != null) {
       final data = json['voltage_b'] as Map<String, dynamic>;
-      voltageBConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? voltageBConfig.normalMax;
-      voltageBConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? voltageBConfig.warningMax;
+      voltageBConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? voltageBConfig.normalMax;
+      voltageBConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? voltageBConfig.warningMax;
     }
     if (json['voltage_c'] != null) {
       final data = json['voltage_c'] as Map<String, dynamic>;
-      voltageCConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? voltageCConfig.normalMax;
-      voltageCConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? voltageCConfig.warningMax;
+      voltageCConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? voltageCConfig.normalMax;
+      voltageCConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? voltageCConfig.warningMax;
     }
 
     // 加载三相电流配置
     if (json['current_a'] != null) {
       final data = json['current_a'] as Map<String, dynamic>;
-      currentAConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? currentAConfig.normalMax;
-      currentAConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? currentAConfig.warningMax;
+      currentAConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? currentAConfig.normalMax;
+      currentAConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? currentAConfig.warningMax;
     }
     if (json['current_b'] != null) {
       final data = json['current_b'] as Map<String, dynamic>;
-      currentBConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? currentBConfig.normalMax;
-      currentBConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? currentBConfig.warningMax;
+      currentBConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? currentBConfig.normalMax;
+      currentBConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? currentBConfig.warningMax;
     }
     if (json['current_c'] != null) {
       final data = json['current_c'] as Map<String, dynamic>;
-      currentCConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? currentCConfig.normalMax;
-      currentCConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? currentCConfig.warningMax;
+      currentCConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? currentCConfig.normalMax;
+      currentCConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? currentCConfig.warningMax;
     }
 
     // 加载功率配置
     if (json['power'] != null) {
       final data = json['power'] as Map<String, dynamic>;
-      powerConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? powerConfig.normalMax;
-      powerConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? powerConfig.warningMax;
+      powerConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? powerConfig.normalMax;
+      powerConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? powerConfig.warningMax;
     }
 
     // 加载 XYZ 速度配置
     if (json['speed_x'] != null) {
       final data = json['speed_x'] as Map<String, dynamic>;
-      speedXConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? speedXConfig.normalMax;
-      speedXConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? speedXConfig.warningMax;
+      speedXConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? speedXConfig.normalMax;
+      speedXConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? speedXConfig.warningMax;
     }
     if (json['speed_y'] != null) {
       final data = json['speed_y'] as Map<String, dynamic>;
-      speedYConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? speedYConfig.normalMax;
-      speedYConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? speedYConfig.warningMax;
+      speedYConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? speedYConfig.normalMax;
+      speedYConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? speedYConfig.warningMax;
     }
     if (json['speed_z'] != null) {
       final data = json['speed_z'] as Map<String, dynamic>;
-      speedZConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? speedZConfig.normalMax;
-      speedZConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? speedZConfig.warningMax;
+      speedZConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? speedZConfig.normalMax;
+      speedZConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? speedZConfig.warningMax;
+    }
+
+    // 加载 XYZ 位移配置
+    if (json['displacement_x'] != null) {
+      final data = json['displacement_x'] as Map<String, dynamic>;
+      displacementXConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ??
+          displacementXConfig.normalMax;
+      displacementXConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ??
+              displacementXConfig.warningMax;
+    }
+    if (json['displacement_y'] != null) {
+      final data = json['displacement_y'] as Map<String, dynamic>;
+      displacementYConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ??
+          displacementYConfig.normalMax;
+      displacementYConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ??
+              displacementYConfig.warningMax;
+    }
+    if (json['displacement_z'] != null) {
+      final data = json['displacement_z'] as Map<String, dynamic>;
+      displacementZConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ??
+          displacementZConfig.normalMax;
+      displacementZConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ??
+              displacementZConfig.warningMax;
     }
 
     // 加载 XYZ 频率配置
     if (json['freq_x'] != null) {
       final data = json['freq_x'] as Map<String, dynamic>;
-      freqXConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? freqXConfig.normalMax;
-      freqXConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? freqXConfig.warningMax;
+      freqXConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? freqXConfig.normalMax;
+      freqXConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? freqXConfig.warningMax;
     }
     if (json['freq_y'] != null) {
       final data = json['freq_y'] as Map<String, dynamic>;
-      freqYConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? freqYConfig.normalMax;
-      freqYConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? freqYConfig.warningMax;
+      freqYConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? freqYConfig.normalMax;
+      freqYConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? freqYConfig.warningMax;
     }
     if (json['freq_z'] != null) {
       final data = json['freq_z'] as Map<String, dynamic>;
-      freqZConfig.normalMax = (data['normalMax'] as num?)?.toDouble() ?? freqZConfig.normalMax;
-      freqZConfig.warningMax = (data['warningMax'] as num?)?.toDouble() ?? freqZConfig.warningMax;
+      freqZConfig.normalMax =
+          (data['normalMax'] as num?)?.toDouble() ?? freqZConfig.normalMax;
+      freqZConfig.warningMax =
+          (data['warningMax'] as num?)?.toDouble() ?? freqZConfig.warningMax;
     }
   }
 
@@ -373,6 +454,18 @@ class HopperThresholdProvider extends ChangeNotifier {
       'speed_z': {
         'normalMax': speedZConfig.normalMax,
         'warningMax': speedZConfig.warningMax,
+      },
+      'displacement_x': {
+        'normalMax': displacementXConfig.normalMax,
+        'warningMax': displacementXConfig.warningMax,
+      },
+      'displacement_y': {
+        'normalMax': displacementYConfig.normalMax,
+        'warningMax': displacementYConfig.warningMax,
+      },
+      'displacement_z': {
+        'normalMax': displacementZConfig.normalMax,
+        'warningMax': displacementZConfig.warningMax,
       },
       'freq_x': {
         'normalMax': freqXConfig.normalMax,
@@ -435,12 +528,51 @@ class HopperThresholdProvider extends ChangeNotifier {
     speedZConfig.normalMax = 5.0;
     speedZConfig.warningMax = 10.0;
 
+    displacementXConfig.normalMax = 300.0;
+    displacementXConfig.warningMax = 500.0;
+    displacementYConfig.normalMax = 300.0;
+    displacementYConfig.warningMax = 500.0;
+    displacementZConfig.normalMax = 300.0;
+    displacementZConfig.warningMax = 500.0;
+
     freqXConfig.normalMax = 50.0;
     freqXConfig.warningMax = 60.0;
     freqYConfig.normalMax = 50.0;
     freqYConfig.warningMax = 60.0;
     freqZConfig.normalMax = 50.0;
     freqZConfig.warningMax = 60.0;
+
+    notifyListeners();
+  }
+
+  void applyBackendThresholds(Map<String, dynamic> map) {
+    void apply(ThresholdConfig config, String key) {
+      final data = map[key];
+      if (data is! Map<String, dynamic>) return;
+      config.normalMax =
+          (data['warning_max'] as num?)?.toDouble() ?? config.normalMax;
+      config.warningMax =
+          (data['alarm_max'] as num?)?.toDouble() ?? config.warningMax;
+    }
+
+    apply(pm10Config, 'pm10');
+    apply(temperatureConfig, 'temperature');
+    apply(voltageAConfig, 'voltage_a');
+    apply(voltageBConfig, 'voltage_b');
+    apply(voltageCConfig, 'voltage_c');
+    apply(currentAConfig, 'current_a');
+    apply(currentBConfig, 'current_b');
+    apply(currentCConfig, 'current_c');
+    apply(powerConfig, 'power');
+    apply(speedXConfig, 'speed_x');
+    apply(speedYConfig, 'speed_y');
+    apply(speedZConfig, 'speed_z');
+    apply(displacementXConfig, 'displacement_x');
+    apply(displacementYConfig, 'displacement_y');
+    apply(displacementZConfig, 'displacement_z');
+    apply(freqXConfig, 'freq_x');
+    apply(freqYConfig, 'freq_y');
+    apply(freqZConfig, 'freq_z');
 
     notifyListeners();
   }
@@ -485,6 +617,18 @@ class HopperThresholdProvider extends ChangeNotifier {
   /// 获取 Z 轴速度颜色
   Color getSpeedZColor(double value) => speedZConfig.getColor(value);
 
+  /// 获取 X 轴位移颜色
+  Color getDisplacementXColor(double value) =>
+      displacementXConfig.getColor(value);
+
+  /// 获取 Y 轴位移颜色
+  Color getDisplacementYColor(double value) =>
+      displacementYConfig.getColor(value);
+
+  /// 获取 Z 轴位移颜色
+  Color getDisplacementZColor(double value) =>
+      displacementZConfig.getColor(value);
+
   /// 获取 X 轴频率颜色
   Color getFreqXColor(double value) => freqXConfig.getColor(value);
 
@@ -494,4 +638,3 @@ class HopperThresholdProvider extends ChangeNotifier {
   /// 获取 Z 轴频率颜色
   Color getFreqZColor(double value) => freqZConfig.getColor(value);
 }
-

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../providers/hopper_threshold_provider.dart';
+import '../../services/alarm_service.dart';
 import '../data_display/data_tech_line_widgets.dart';
 
 /// 料仓阈值设置Widget
@@ -20,8 +21,10 @@ class HopperThresholdSettingsWidget extends StatefulWidget {
 
 class _HopperThresholdSettingsWidgetState
     extends State<HopperThresholdSettingsWidget> {
+  final AlarmService _alarmService = AlarmService();
   // 当前选中的类别
-  int _selectedCategory = 0; // 0: 三相电流, 1: 三相电压, 2: XYZ速度, 3: XYZ频率, 4: 温度, 5: PM10
+  int _selectedCategory =
+      0; // 0: 三相电流, 1: 三相电压, 2: XYZ速度, 3: XYZ位移, 4: XYZ频率, 5: 温度, 6: PM10
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +56,12 @@ class _HopperThresholdSettingsWidgetState
       },
       {'icon': Icons.bolt, 'label': '三相电压', 'color': TechColors.glowCyan},
       {'icon': Icons.speed, 'label': 'XYZ速度', 'color': TechColors.glowCyan},
-      {'icon': Icons.graphic_eq, 'label': 'XYZ频率', 'color': TechColors.glowCyan},
+      {'icon': Icons.open_with, 'label': 'XYZ位移', 'color': TechColors.glowCyan},
+      {
+        'icon': Icons.graphic_eq,
+        'label': 'XYZ频率',
+        'color': TechColors.glowCyan
+      },
       {'icon': Icons.thermostat, 'label': '温度', 'color': TechColors.glowOrange},
       {'icon': Icons.air, 'label': 'PM10', 'color': TechColors.glowPurple},
     ];
@@ -61,7 +69,7 @@ class _HopperThresholdSettingsWidgetState
     return Container(
       height: 40,
       decoration: BoxDecoration(
-        color: TechColors.bgMedium.withOpacity(0.5),
+        color: TechColors.bgMedium.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(4),
         border: Border.all(color: TechColors.borderDark),
       ),
@@ -77,11 +85,12 @@ class _HopperThresholdSettingsWidgetState
               child: Container(
                 height: double.infinity,
                 decoration: BoxDecoration(
-                  color:
-                      isSelected ? color.withOpacity(0.2) : Colors.transparent,
+                  color: isSelected
+                      ? color.withValues(alpha: 0.2)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(4),
                   border: isSelected
-                      ? Border.all(color: color.withOpacity(0.5))
+                      ? Border.all(color: color.withValues(alpha: 0.5))
                       : null,
                 ),
                 child: Row(
@@ -122,10 +131,12 @@ class _HopperThresholdSettingsWidgetState
       case 2:
         return _buildSpeedConfig();
       case 3:
-        return _buildFrequencyConfig();
+        return _buildDisplacementConfig();
       case 4:
-        return _buildTemperatureConfig();
+        return _buildFrequencyConfig();
       case 5:
+        return _buildTemperatureConfig();
+      case 6:
         return _buildPM10Config();
       default:
         return const SizedBox();
@@ -185,6 +196,66 @@ class _HopperThresholdSettingsWidgetState
           onWarningChanged: (value) {
             setState(() {
               widget.provider.currentCConfig.warningMax = value;
+            });
+          },
+        ),
+      ],
+    );
+  }
+
+  /// XYZ位移阈值配置
+  Widget _buildDisplacementConfig() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildThresholdRow(
+          label: 'X轴位移',
+          normalMax: widget.provider.displacementXConfig.normalMax,
+          warningMax: widget.provider.displacementXConfig.warningMax,
+          unit: 'um',
+          color: TechColors.glowCyan,
+          onNormalChanged: (value) {
+            setState(() {
+              widget.provider.displacementXConfig.normalMax = value;
+            });
+          },
+          onWarningChanged: (value) {
+            setState(() {
+              widget.provider.displacementXConfig.warningMax = value;
+            });
+          },
+        ),
+        _buildThresholdRow(
+          label: 'Y轴位移',
+          normalMax: widget.provider.displacementYConfig.normalMax,
+          warningMax: widget.provider.displacementYConfig.warningMax,
+          unit: 'um',
+          color: TechColors.glowCyan,
+          onNormalChanged: (value) {
+            setState(() {
+              widget.provider.displacementYConfig.normalMax = value;
+            });
+          },
+          onWarningChanged: (value) {
+            setState(() {
+              widget.provider.displacementYConfig.warningMax = value;
+            });
+          },
+        ),
+        _buildThresholdRow(
+          label: 'Z轴位移',
+          normalMax: widget.provider.displacementZConfig.normalMax,
+          warningMax: widget.provider.displacementZConfig.warningMax,
+          unit: 'um',
+          color: TechColors.glowCyan,
+          onNormalChanged: (value) {
+            setState(() {
+              widget.provider.displacementZConfig.normalMax = value;
+            });
+          },
+          onWarningChanged: (value) {
+            setState(() {
+              widget.provider.displacementZConfig.warningMax = value;
             });
           },
         ),
@@ -438,7 +509,7 @@ class _HopperThresholdSettingsWidgetState
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: TechColors.bgMedium.withOpacity(0.5),
+        color: TechColors.bgMedium.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(4),
         border: Border.all(color: TechColors.borderDark),
       ),
@@ -475,7 +546,7 @@ class _HopperThresholdSettingsWidgetState
               Container(
                 width: 8,
                 height: 8,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: ThresholdColors.warning,
                   shape: BoxShape.circle,
                 ),
@@ -498,7 +569,7 @@ class _HopperThresholdSettingsWidgetState
               Container(
                 width: 8,
                 height: 8,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: ThresholdColors.alarm,
                   shape: BoxShape.circle,
                 ),
@@ -613,7 +684,7 @@ class _HopperThresholdSettingsWidgetState
   Widget _buildActionButtons() {
     return Container(
       padding: const EdgeInsets.only(top: 16),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: TechColors.borderDark)),
       ),
       child: Row(
@@ -629,21 +700,29 @@ class _HopperThresholdSettingsWidgetState
             label: const Text('恢复默认'),
             style: OutlinedButton.styleFrom(
               foregroundColor: TechColors.statusWarning,
-              side:
-                  BorderSide(color: TechColors.statusWarning.withOpacity(0.5)),
+              side: BorderSide(
+                  color: TechColors.statusWarning.withValues(alpha: 0.5)),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             ),
           ),
           const SizedBox(width: 12),
           ElevatedButton.icon(
             onPressed: () async {
-              final success = await widget.provider.saveConfig();
+              final localSuccess = await widget.provider.saveConfig();
+              final syncSuccess = localSuccess
+                  ? await _alarmService.syncThresholds(widget.provider)
+                  : false;
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(success ? '阈值配置已保存' : '保存失败'),
-                    backgroundColor:
-                        success ? TechColors.glowGreen : TechColors.statusAlarm,
+                    content: Text(
+                      !localSuccess
+                          ? '保存失败'
+                          : (syncSuccess ? '阈值配置已保存并同步后端' : '本地已保存，后端同步失败'),
+                    ),
+                    backgroundColor: (localSuccess && syncSuccess)
+                        ? TechColors.glowGreen
+                        : TechColors.statusAlarm,
                     duration: const Duration(seconds: 2),
                   ),
                 );
@@ -652,12 +731,13 @@ class _HopperThresholdSettingsWidgetState
             icon: const Icon(Icons.save, size: 16),
             label: const Text('保存配置'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: TechColors.glowCyan.withOpacity(0.2),
+              backgroundColor: TechColors.glowCyan.withValues(alpha: 0.2),
               foregroundColor: TechColors.glowCyan,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(4),
-                side: BorderSide(color: TechColors.glowCyan.withOpacity(0.5)),
+                side: BorderSide(
+                    color: TechColors.glowCyan.withValues(alpha: 0.5)),
               ),
             ),
           ),
@@ -737,25 +817,24 @@ class _NumberInputFieldState extends State<_NumberInputField> {
       onSubmitted: (_) {
         _isEditing = false;
       },
-      decoration: InputDecoration(
+      decoration: const InputDecoration(
         isDense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         filled: true,
         fillColor: TechColors.bgDeep,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.all(Radius.circular(4)),
           borderSide: BorderSide(color: TechColors.borderDark),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.all(Radius.circular(4)),
           borderSide: BorderSide(color: TechColors.borderDark),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.all(Radius.circular(4)),
           borderSide: BorderSide(color: TechColors.glowCyan),
         ),
       ),
     );
   }
 }
-
