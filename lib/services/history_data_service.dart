@@ -45,11 +45,11 @@ class HistoryDataService {
   // ============================================================
 
   /// 目标数据点数（保持图表显示效果一致）
-  static const int _targetPoints = 80;
+  static const int _targetPoints = 50;
 
   /// 可接受的数据点范围
-  static const int _minPoints = 40;
-  static const int _maxPoints = 150;
+  static const int _minPoints = 30;
+  static const int _maxPoints = 80;
 
   /// 有效的聚合间隔选项（秒）
   static const List<int> _validIntervals = [
@@ -335,7 +335,7 @@ class HistoryDataService {
         );
       }
     } catch (e) {
-      debugPrint('❌ 历史数据请求失败: $e');
+      debugPrint('[错误] 历史数据请求失败: $e');
       return HistoryDataResult(
         success: false,
         deviceId: deviceId,

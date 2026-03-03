@@ -281,7 +281,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
           numValue = elec?.voltageB ?? 0.0;
           value = numValue.toStringAsFixed(1);
           unit = 'V';
-          color = ThresholdColors.normal;
+          color = thresholdProvider.getVoltageBColor(numValue);
           icon = Icons.bolt;
           break;
         case 6: // C相电压
@@ -289,7 +289,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
           numValue = elec?.voltageC ?? 0.0;
           value = numValue.toStringAsFixed(1);
           unit = 'V';
-          color = ThresholdColors.normal;
+          color = thresholdProvider.getVoltageCColor(numValue);
           icon = Icons.bolt;
           break;
         case 7: // A相电流
@@ -323,7 +323,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
           numValue = vib?.vx ?? 0.0;
           value = numValue.toStringAsFixed(1);
           unit = 'mm/s';
-          color = ThresholdColors.normal;
+          color = thresholdProvider.getSpeedXColor(numValue);
           icon = Icons.vibration;
           break;
         case 11: // Y轴速度
@@ -331,7 +331,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
           numValue = vib?.vy ?? 0.0;
           value = numValue.toStringAsFixed(1);
           unit = 'mm/s';
-          color = ThresholdColors.normal;
+          color = thresholdProvider.getSpeedYColor(numValue);
           icon = Icons.vibration;
           break;
         case 12: // Z轴速度
@@ -339,7 +339,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
           numValue = vib?.vz ?? 0.0;
           value = numValue.toStringAsFixed(1);
           unit = 'mm/s';
-          color = ThresholdColors.normal;
+          color = thresholdProvider.getSpeedZColor(numValue);
           icon = Icons.vibration;
           break;
         case 13: // X轴位移
@@ -347,7 +347,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
           numValue = vib?.dx ?? 0.0;
           value = numValue.toStringAsFixed(1);
           unit = 'um';
-          color = ThresholdColors.normal;
+          color = thresholdProvider.getDisplacementXColor(numValue);
           icon = Icons.straighten;
           break;
         case 14: // Y轴位移
@@ -355,7 +355,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
           numValue = vib?.dy ?? 0.0;
           value = numValue.toStringAsFixed(1);
           unit = 'um';
-          color = ThresholdColors.normal;
+          color = thresholdProvider.getDisplacementYColor(numValue);
           icon = Icons.straighten;
           break;
         case 15: // Z轴位移
@@ -363,7 +363,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
           numValue = vib?.dz ?? 0.0;
           value = numValue.toStringAsFixed(1);
           unit = 'um';
-          color = ThresholdColors.normal;
+          color = thresholdProvider.getDisplacementZColor(numValue);
           icon = Icons.straighten;
           break;
         case 16: // X轴频率
@@ -584,7 +584,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
             label: 'X轴速度',
             value: (vib?.vx ?? 0.0).toStringAsFixed(1),
             unit: 'mm/s',
-            color: ThresholdColors.normal,
+            color: thresholdProvider.getSpeedXColor(vib?.vx ?? 0.0),
           ),
           const SizedBox(height: 2),
           _buildDataRow(
@@ -592,7 +592,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
             label: 'Y轴速度',
             value: (vib?.vy ?? 0.0).toStringAsFixed(1),
             unit: 'mm/s',
-            color: ThresholdColors.normal,
+            color: thresholdProvider.getSpeedYColor(vib?.vy ?? 0.0),
           ),
           const SizedBox(height: 2),
           _buildDataRow(
@@ -600,7 +600,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
             label: 'Z轴速度',
             value: (vib?.vz ?? 0.0).toStringAsFixed(1),
             unit: 'mm/s',
-            color: ThresholdColors.normal,
+            color: thresholdProvider.getSpeedZColor(vib?.vz ?? 0.0),
           ),
           const SizedBox(height: 2),
           _buildDataRow(
@@ -608,7 +608,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
             label: 'X轴位移',
             value: (vib?.dx ?? 0.0).toStringAsFixed(1),
             unit: 'um',
-            color: ThresholdColors.normal,
+            color: thresholdProvider.getDisplacementXColor(vib?.dx ?? 0.0),
           ),
           const SizedBox(height: 2),
           _buildDataRow(
@@ -616,7 +616,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
             label: 'Y轴位移',
             value: (vib?.dy ?? 0.0).toStringAsFixed(1),
             unit: 'um',
-            color: ThresholdColors.normal,
+            color: thresholdProvider.getDisplacementYColor(vib?.dy ?? 0.0),
           ),
           const SizedBox(height: 2),
           _buildDataRow(
@@ -624,7 +624,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
             label: 'Z轴位移',
             value: (vib?.dz ?? 0.0).toStringAsFixed(1),
             unit: 'um',
-            color: ThresholdColors.normal,
+            color: thresholdProvider.getDisplacementZColor(vib?.dz ?? 0.0),
           ),
           const SizedBox(height: 2),
           _buildDataRow(
@@ -704,7 +704,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
             label: 'B相电压',
             value: (elec?.voltageB ?? 0.0).toStringAsFixed(1),
             unit: 'V',
-            color: ThresholdColors.normal,
+            color: thresholdProvider.getVoltageBColor(elec?.voltageB ?? 0.0),
           ),
           const SizedBox(height: 2),
           _buildDataRow(
@@ -712,7 +712,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
             label: 'C相电压',
             value: (elec?.voltageC ?? 0.0).toStringAsFixed(1),
             unit: 'V',
-            color: ThresholdColors.normal,
+            color: thresholdProvider.getVoltageCColor(elec?.voltageC ?? 0.0),
           ),
           const SizedBox(height: 2),
           _buildDataRow(

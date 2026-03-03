@@ -36,14 +36,19 @@ class AlarmService {
     DateTime? end,
     String? level,
     String? paramName,
+    List<String>? paramNames,
     int limit = 200,
   }) async {
     final params = <String, String>{'limit': limit.toString()};
     if (start != null) params['start'] = start.toUtc().toIso8601String();
     if (end != null) params['end'] = end.toUtc().toIso8601String();
     if (level != null && level.isNotEmpty) params['level'] = level;
-    if (paramName != null && paramName.isNotEmpty)
+    // paramNames 优先 (多参数一次请求); 否则用单个 paramName
+    if (paramNames != null && paramNames.isNotEmpty) {
+      params['param_names'] = paramNames.join(',');
+    } else if (paramName != null && paramName.isNotEmpty) {
       params['param_name'] = paramName;
+    }
 
     try {
       final data = await _httpClient.get(Api.alarmRecords, params: params);

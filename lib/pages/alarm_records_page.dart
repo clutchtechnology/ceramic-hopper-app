@@ -161,6 +161,30 @@ class AlarmRecordsPageState extends State<AlarmRecordsPage> {
     });
   }
 
+  // 获取当前宫格实际需要查询的参数列表
+  // 若选择了"全部"(空字符串), 返回该宫格所有子参数; 否则返回当前选中的参数
+  List<String> _getEffectiveParams(int index) {
+    final selected = _selectedParamValues[index];
+    if (selected.isNotEmpty) return [selected];
+    return _gridConfigs[index]
+        .params
+        .values
+        .where((v) => v.isNotEmpty)
+        .toList();
+  }
+
+  // 查询单个宫格的报警记录 (利用 paramNames 一次请求如该宫格全部参数)
+  Future<List<AlarmRecord>> _fetchGridRecords(int index) async {
+    final effectiveParams = _getEffectiveParams(index);
+    return _alarmService.queryAlarms(
+      start: _startTime,
+      end: _endTime,
+      level: 'alarm',
+      paramNames: effectiveParams,
+      limit: 100,
+    );
+  }
+
   Future<void> _queryAll() async {
     // 1. 批量设置 loading 状态 (单次 setState, 减少 UI 重建)
     if (!mounted) return;
@@ -172,7 +196,7 @@ class AlarmRecordsPageState extends State<AlarmRecordsPage> {
       }
     });
 
-    // 2. 并行查询所有网格数据
+    // 2. 并行查询所有网格数据 ("全部"时自动限定本宫格参数范围)
     final results = <int, List<AlarmRecord>>{};
     final futures = <Future<void>>[];
     for (int i = 0; i < _gridConfigs.length; i++) {
@@ -180,13 +204,7 @@ class AlarmRecordsPageState extends State<AlarmRecordsPage> {
       final idx = i;
       futures.add(() async {
         try {
-          results[idx] = await _alarmService.queryAlarms(
-            start: _startTime,
-            end: _endTime,
-            level: 'alarm',
-            paramName: _selectedParamValues[idx],
-            limit: 150,
-          );
+          results[idx] = await _fetchGridRecords(idx);
         } catch (_) {
           results[idx] = [];
         }
@@ -219,16 +237,8 @@ class AlarmRecordsPageState extends State<AlarmRecordsPage> {
     }
     setState(() => _gridLoading[index] = true);
 
-    final paramValue = _selectedParamValues[index];
-
     try {
-      final records = await _alarmService.queryAlarms(
-        start: _startTime,
-        end: _endTime,
-        level: 'alarm',
-        paramName: paramValue,
-        limit: 150,
-      );
+      final records = await _fetchGridRecords(index);
 
       if (!mounted) return;
       setState(() {
@@ -574,12 +584,7 @@ class AlarmRecordsPageState extends State<AlarmRecordsPage> {
                       style: TextStyle(
                           color: TechColors.textSecondary, fontSize: 12))),
               Expanded(
-                  flex: 12,
-                  child: Text('级别',
-                      style: TextStyle(
-                          color: TechColors.textSecondary, fontSize: 12))),
-              Expanded(
-                  flex: 16,
+                  flex: 28,
                   child: Text('值',
                       style: TextStyle(
                           color: TechColors.textSecondary, fontSize: 12))),
@@ -597,9 +602,6 @@ class AlarmRecordsPageState extends State<AlarmRecordsPage> {
                   height: 1),
               itemBuilder: (context, index) {
                 final record = records[index];
-                final levelColor = record.level == 'alarm'
-                    ? TechColors.statusAlarm
-                    : TechColors.statusWarning;
                 return Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -624,19 +626,7 @@ class AlarmRecordsPageState extends State<AlarmRecordsPage> {
                         ),
                       ),
                       Expanded(
-                        flex: 12,
-                        child: Text(
-                          record.level,
-                          style: TextStyle(
-                            color: levelColor,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      Expanded(
-                        flex: 16,
+                        flex: 28,
                         child: Text(
                           '${record.value?.toStringAsFixed(2) ?? '--'} / ${record.threshold?.toStringAsFixed(2) ?? '--'}',
                           style: const TextStyle(

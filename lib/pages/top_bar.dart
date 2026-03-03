@@ -22,7 +22,7 @@ class DigitalTwinPage extends StatefulWidget {
 }
 
 class _DigitalTwinPageState extends State<DigitalTwinPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WindowListener {
   // 1, Tab 控制器
   late TabController _tabController;
 
@@ -42,12 +42,15 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
   Timer? _clockTimer;
   final ValueNotifier<String> _clockTimeNotifier = ValueNotifier('--:--:--');
 
-  // 6, 窗口最大化状态
-  bool _isMaximized = true; // 默认启动时是最大化的
+  // 6, 窗口状态: 最小化后自动恢复全屏
+  bool _restoreFullScreenAfterMinimize = false;
 
   @override
   void initState() {
     super.initState();
+    // 6, 注册窗口事件监听
+    windowManager.addListener(this);
+
     // 1, 初始化 Tab 控制器（4个Tab：实时数据、历史曲线、报警记录、系统设置）
     _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(_onTabChanged);
@@ -114,6 +117,9 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
     _clockTimer?.cancel();
     _clockTimer = null;
     _clockTimeNotifier.dispose();
+
+    // 6, 移除窗口事件监听
+    windowManager.removeListener(this);
 
     super.dispose();
   }
@@ -320,30 +326,50 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
     );
   }
 
-  /// 窗口控制按钮
+  // ============================================================
+  // 6, 窗口事件监听 (WindowListener)
+  // ============================================================
+
+  @override
+  void onWindowRestore() {
+    _tryRestoreFullScreenAfterMinimize();
+  }
+
+  @override
+  void onWindowFocus() {
+    _tryRestoreFullScreenAfterMinimize();
+  }
+
+  Future<void> _tryRestoreFullScreenAfterMinimize() async {
+    if (!_restoreFullScreenAfterMinimize || !mounted) return;
+    _restoreFullScreenAfterMinimize = false;
+    try {
+      await windowManager.setFullScreen(true);
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  /// 窗口控制按钮 (最小化 + 关闭)
   Widget _buildWindowButtons() {
     return Row(
       children: [
+        // 最小化按钮
         _buildWindowButton(
           icon: Icons.remove,
-          onTap: () => windowManager.minimize(),
-          hoverColor: TechColors.glowCyan,
-        ),
-        const SizedBox(width: 4),
-        _buildWindowButton(
-          icon: _isMaximized ? Icons.fullscreen_exit : Icons.crop_square,
           onTap: () async {
-            if (await windowManager.isMaximized()) {
-              await windowManager.unmaximize();
-              setState(() => _isMaximized = false);
-            } else {
-              await windowManager.maximize();
-              setState(() => _isMaximized = true);
+            // Windows 下全屏窗口无法直接最小化: 先退出全屏再最小化
+            final isFullScreen = await windowManager.isFullScreen();
+            if (isFullScreen) {
+              _restoreFullScreenAfterMinimize = true;
+              await windowManager.setFullScreen(false);
             }
+            await windowManager.minimize();
           },
           hoverColor: TechColors.glowCyan,
         ),
         const SizedBox(width: 4),
+        // 关闭按钮
         _buildWindowButton(
           icon: Icons.close,
           onTap: () => _showCloseDialog(),

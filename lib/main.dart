@@ -62,13 +62,10 @@ Future<void> _initializeApp() async {
     );
 
     await windowManager.waitUntilReadyToShow(windowOptions, () async {
-      await windowManager.setResizable(false); // 禁止调整大小
-      // 设置固定分辨率 1336x768
-      await windowManager.setSize(const Size(1336, 768));
-      await windowManager.center(); // 居中显示
       await windowManager.show();
+      await windowManager.setFullScreen(true); // 默认全屏启动
       await windowManager.focus();
-      await logger.info('窗口已初始化 (1336x768)');
+      await logger.info('窗口已初始化 (全屏模式)');
     });
   }
 

@@ -152,11 +152,15 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
       _refreshCurrentData(),
     ]);
 
+    if (!mounted) return;
+
     await Future.wait([
       _refreshVoltageData(),
       _refreshPowerData(),
       _refreshEnergyData(),
     ]);
+
+    if (!mounted) return;
 
     await Future.wait([
       _refreshVelocityData(),
@@ -242,6 +246,7 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
 
   // ==================== 1. PM10数据刷新 ====================
   Future<void> _refreshPM10Data() async {
+    if (!mounted) return;
     setState(() => _pm10Loading = true);
     try {
       final response = await _historyService.queryHopperPM10History(
@@ -264,6 +269,7 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
 
   // ==================== 2. 温度数据刷新 ====================
   Future<void> _refreshTempData() async {
+    if (!mounted) return;
     setState(() => _tempLoading = true);
     try {
       final response = await _historyService.queryHopperTemperatureHistory(
@@ -286,6 +292,7 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
 
   // ==================== 3. 电流数据刷新 (三相) ====================
   Future<void> _refreshCurrentData() async {
+    if (!mounted) return;
     setState(() => _currentLoading = true);
     try {
       final response =
@@ -315,6 +322,7 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
 
   // ==================== 4. 电压数据刷新 (三相) ====================
   Future<void> _refreshVoltageData() async {
+    if (!mounted) return;
     setState(() => _voltageLoading = true);
     try {
       final response =
@@ -344,6 +352,7 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
 
   // ==================== 5. 功率数据刷新 ====================
   Future<void> _refreshPowerData() async {
+    if (!mounted) return;
     setState(() => _powerLoading = true);
     try {
       final response = await _historyService.queryHopperPowerHistory(
@@ -365,6 +374,7 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
 
   // ==================== 6. 能耗数据刷新 ====================
   Future<void> _refreshEnergyData() async {
+    if (!mounted) return;
     setState(() => _energyLoading = true);
     try {
       final response = await _historyService.queryHopperEnergyHistory(
@@ -386,6 +396,7 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
 
   // ==================== 7. 振动速度数据刷新 (三轴) ====================
   Future<void> _refreshVelocityData() async {
+    if (!mounted) return;
     setState(() => _velocityLoading = true);
     try {
       final response =
@@ -415,6 +426,7 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
 
   // ==================== 8. 振动位移数据刷新 (三轴) ====================
   Future<void> _refreshDisplacementData() async {
+    if (!mounted) return;
     setState(() => _displacementLoading = true);
     try {
       final response =
@@ -444,6 +456,7 @@ class HopperHistoryPageState extends State<HopperHistoryPage> {
 
   // ==================== 9. 振动频率数据刷新 (三轴) ====================
   Future<void> _refreshFrequencyData() async {
+    if (!mounted) return;
     setState(() => _frequencyLoading = true);
     try {
       final response =
