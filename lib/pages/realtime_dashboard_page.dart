@@ -21,6 +21,12 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
   final HopperService _hopperService = HopperService();
   final RealtimeDataCacheService _cacheService = RealtimeDataCacheService();
 
+  // 缓存 ColorFilter 避免每次 build 重建对象
+  static final ColorFilter _hopperImageFilter = ColorFilter.mode(
+    TechColors.glowCyan.withOpacity(0.6),
+    BlendMode.srcIn,
+  );
+
   Map<String, HopperData> _hopperData = {};
   final bool _isRefreshingState = false;
 
@@ -461,10 +467,7 @@ class RealtimeDashboardPageState extends State<RealtimeDashboardPage>
             child: ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: ColorFiltered(
-                colorFilter: ColorFilter.mode(
-                  TechColors.glowCyan.withOpacity(0.6),
-                  BlendMode.srcIn,
-                ),
+                colorFilter: _hopperImageFilter,
                 child: Image.asset(
                   'assets/images/hopper.png',
                   fit: BoxFit.contain,

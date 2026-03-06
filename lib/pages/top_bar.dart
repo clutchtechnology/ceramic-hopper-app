@@ -196,7 +196,7 @@ class _DigitalTwinPageState extends State<DigitalTwinPage>
                 colors: [TechColors.glowCyan, TechColors.glowCyanLight],
               ).createShader(bounds),
               child: const Text(
-                '南料仓',
+                '北料仓',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 15,

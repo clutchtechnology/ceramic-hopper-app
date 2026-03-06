@@ -95,8 +95,8 @@ class HopperThresholdProvider extends ChangeNotifier {
   ThresholdConfig pm10Config = ThresholdConfig(
     key: 'pm10',
     displayName: 'PM10 粉尘浓度',
-    normalMax: 75.0,
-    warningMax: 150.0,
+    normalMax: 450.0,
+    warningMax: 600.0,
   );
 
   // ============================================================
@@ -105,8 +105,8 @@ class HopperThresholdProvider extends ChangeNotifier {
   ThresholdConfig temperatureConfig = ThresholdConfig(
     key: 'temperature',
     displayName: '温度',
-    normalMax: 60.0,
-    warningMax: 80.0,
+    normalMax: 100.0,
+    warningMax: 130.0,
   );
 
   // ============================================================
@@ -163,8 +163,8 @@ class HopperThresholdProvider extends ChangeNotifier {
   ThresholdConfig powerConfig = ThresholdConfig(
     key: 'power',
     displayName: '功率',
-    normalMax: 10.0,
-    warningMax: 15.0,
+    normalMax: 30.0,
+    warningMax: 40.0,
   );
 
   // ============================================================
@@ -173,22 +173,22 @@ class HopperThresholdProvider extends ChangeNotifier {
   ThresholdConfig speedXConfig = ThresholdConfig(
     key: 'speed_x',
     displayName: 'X轴速度',
-    normalMax: 5.0,
-    warningMax: 10.0,
+    normalMax: 75.0,
+    warningMax: 100.0,
   );
 
   ThresholdConfig speedYConfig = ThresholdConfig(
     key: 'speed_y',
     displayName: 'Y轴速度',
-    normalMax: 5.0,
-    warningMax: 10.0,
+    normalMax: 75.0,
+    warningMax: 100.0,
   );
 
   ThresholdConfig speedZConfig = ThresholdConfig(
     key: 'speed_z',
     displayName: 'Z轴速度',
-    normalMax: 5.0,
-    warningMax: 10.0,
+    normalMax: 75.0,
+    warningMax: 100.0,
   );
 
   // ============================================================
@@ -197,22 +197,22 @@ class HopperThresholdProvider extends ChangeNotifier {
   ThresholdConfig displacementXConfig = ThresholdConfig(
     key: 'displacement_x',
     displayName: 'X轴位移',
-    normalMax: 300.0,
-    warningMax: 500.0,
+    normalMax: 3000.0,
+    warningMax: 5000.0,
   );
 
   ThresholdConfig displacementYConfig = ThresholdConfig(
     key: 'displacement_y',
     displayName: 'Y轴位移',
-    normalMax: 300.0,
-    warningMax: 500.0,
+    normalMax: 3000.0,
+    warningMax: 5000.0,
   );
 
   ThresholdConfig displacementZConfig = ThresholdConfig(
     key: 'displacement_z',
     displayName: 'Z轴位移',
-    normalMax: 300.0,
-    warningMax: 500.0,
+    normalMax: 3000.0,
+    warningMax: 5000.0,
   );
 
   // ============================================================
@@ -221,22 +221,22 @@ class HopperThresholdProvider extends ChangeNotifier {
   ThresholdConfig freqXConfig = ThresholdConfig(
     key: 'freq_x',
     displayName: 'X轴频率',
-    normalMax: 50.0,
-    warningMax: 60.0,
+    normalMax: 200.0,
+    warningMax: 300.0,
   );
 
   ThresholdConfig freqYConfig = ThresholdConfig(
     key: 'freq_y',
     displayName: 'Y轴频率',
-    normalMax: 50.0,
-    warningMax: 60.0,
+    normalMax: 200.0,
+    warningMax: 300.0,
   );
 
   ThresholdConfig freqZConfig = ThresholdConfig(
     key: 'freq_z',
     displayName: 'Z轴频率',
-    normalMax: 50.0,
-    warningMax: 60.0,
+    normalMax: 200.0,
+    warningMax: 300.0,
   );
 
   /// 从本地存储加载配置
@@ -498,11 +498,11 @@ class HopperThresholdProvider extends ChangeNotifier {
 
   /// 重置为默认配置
   void resetToDefault() {
-    pm10Config.normalMax = 75.0;
-    pm10Config.warningMax = 150.0;
+    pm10Config.normalMax = 450.0;
+    pm10Config.warningMax = 600.0;
 
-    temperatureConfig.normalMax = 60.0;
-    temperatureConfig.warningMax = 80.0;
+    temperatureConfig.normalMax = 100.0;
+    temperatureConfig.warningMax = 130.0;
 
     voltageAConfig.normalMax = 400.0;
     voltageAConfig.warningMax = 420.0;
@@ -518,29 +518,29 @@ class HopperThresholdProvider extends ChangeNotifier {
     currentCConfig.normalMax = 50.0;
     currentCConfig.warningMax = 80.0;
 
-    powerConfig.normalMax = 10.0;
-    powerConfig.warningMax = 15.0;
+    powerConfig.normalMax = 30.0;
+    powerConfig.warningMax = 40.0;
 
-    speedXConfig.normalMax = 5.0;
-    speedXConfig.warningMax = 10.0;
-    speedYConfig.normalMax = 5.0;
-    speedYConfig.warningMax = 10.0;
-    speedZConfig.normalMax = 5.0;
-    speedZConfig.warningMax = 10.0;
+    speedXConfig.normalMax = 75.0;
+    speedXConfig.warningMax = 100.0;
+    speedYConfig.normalMax = 75.0;
+    speedYConfig.warningMax = 100.0;
+    speedZConfig.normalMax = 75.0;
+    speedZConfig.warningMax = 100.0;
 
-    displacementXConfig.normalMax = 300.0;
-    displacementXConfig.warningMax = 500.0;
-    displacementYConfig.normalMax = 300.0;
-    displacementYConfig.warningMax = 500.0;
-    displacementZConfig.normalMax = 300.0;
-    displacementZConfig.warningMax = 500.0;
+    displacementXConfig.normalMax = 3000.0;
+    displacementXConfig.warningMax = 5000.0;
+    displacementYConfig.normalMax = 3000.0;
+    displacementYConfig.warningMax = 5000.0;
+    displacementZConfig.normalMax = 3000.0;
+    displacementZConfig.warningMax = 5000.0;
 
-    freqXConfig.normalMax = 50.0;
-    freqXConfig.warningMax = 60.0;
-    freqYConfig.normalMax = 50.0;
-    freqYConfig.warningMax = 60.0;
-    freqZConfig.normalMax = 50.0;
-    freqZConfig.warningMax = 60.0;
+    freqXConfig.normalMax = 200.0;
+    freqXConfig.warningMax = 300.0;
+    freqYConfig.normalMax = 200.0;
+    freqYConfig.warningMax = 300.0;
+    freqZConfig.normalMax = 200.0;
+    freqZConfig.warningMax = 300.0;
 
     notifyListeners();
   }

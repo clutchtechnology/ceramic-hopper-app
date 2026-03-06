@@ -402,6 +402,13 @@ class HistoryChartCard extends StatelessWidget {
       );
     }
 
+    // 数据点总数 (用于 X 轴时间标签计算)
+    final maxLength = isMultiLine
+        ? (multiLineData!.values.isNotEmpty
+            ? multiLineData!.values.first.length
+            : 0)
+        : data.length;
+
     return Padding(
       padding: const EdgeInsets.only(left: 4, right: 4, top: 4, bottom: 4),
       child: LineChart(
@@ -470,28 +477,32 @@ class HistoryChartCard extends StatelessWidget {
               sideTitles: SideTitles(
                 showTitles: true,
                 reservedSize: 18,
-                interval: (isMultiLine
-                    ? (multiLineData!.values.first.length > 10
-                        ? (multiLineData!.values.first.length / 5)
-                            .ceilToDouble()
-                        : 2)
-                    : (data.length > 10
-                        ? (data.length / 5).ceilToDouble()
-                        : 2)),
+                interval: maxLength > 8 ? (maxLength / 8).ceilToDouble() : 1,
                 getTitlesWidget: (value, meta) {
-                  final maxLength = isMultiLine
-                      ? multiLineData!.values.first.length
-                      : data.length;
-                  if (value.toInt() >= 0 && value.toInt() < maxLength) {
-                    return Text(
-                      value.toInt().toString(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                      ),
-                    );
+                  final index = value.toInt();
+                  if (index < 0 || index >= maxLength || maxLength <= 1) {
+                    return const SizedBox.shrink();
                   }
-                  return const SizedBox.shrink();
+                  // 跳过离终点过近的标签，防止与最后一个标签重叠
+                  final step = maxLength > 8 ? (maxLength / 8).ceil() : 1;
+                  if (index > 0 &&
+                      index != maxLength - 1 &&
+                      (maxLength - 1 - index) < step * 0.6) {
+                    return const SizedBox.shrink();
+                  }
+                  final totalDuration = endTime.difference(startTime);
+                  final pointTime = startTime.add(Duration(
+                    milliseconds:
+                        (totalDuration.inMilliseconds * index / (maxLength - 1))
+                            .round(),
+                  ));
+                  return Text(
+                    DateFormat('HH:mm').format(pointTime),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                    ),
+                  );
                 },
               ),
             ),
@@ -499,7 +510,8 @@ class HistoryChartCard extends StatelessWidget {
           gridData: FlGridData(
             show: true,
             drawVerticalLine: true,
-            horizontalInterval: ((chartMaxY - chartMinY) / 5).clamp(0.1, double.infinity),
+            horizontalInterval:
+                ((chartMaxY - chartMinY) / 5).clamp(0.1, double.infinity),
             getDrawingHorizontalLine: (value) {
               return FlLine(
                 color: TechColors.borderDark.withOpacity(0.3),
